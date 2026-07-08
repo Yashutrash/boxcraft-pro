@@ -8,15 +8,29 @@ const DielineSVG = React.forwardRef(function DielineSVG(props, forwardedRef) {
   const svgRef = forwardedRef || internalRef;
 
   const { 
-    L, W, H, T, glueFlapWidth, bleed, 
+    L, W, H, T, sizeMode, glueFlapWidth, bleed, 
     trimColor, creaseColor, bleedColor, dimColor, 
     showOverallDims, showBasicDims, showBleedLine, showAnnotations, 
     theme 
   } = useBoxStore();
 
+  // --- THE PACDORA 2T MATH REVEALED IN THE VIDEO ---
+  let manuL = L, manuW = W, manuH = H;
+  let innerL = L, innerW = W, innerH = H;
+
+  if (sizeMode === 'manufacture') {
+    innerL = L - 2*T; innerW = W - 2*T; innerH = H - 2*T;
+  } else if (sizeMode === 'inner') {
+    manuL = L + 2*T; manuW = W + 2*T; manuH = H + 2*T;
+  } else if (sizeMode === 'outer') {
+    manuL = L - 2*T; manuW = W - 2*T; manuH = H - 2*T;
+    innerL = L - 4*T; innerW = W - 4*T; innerH = H - 4*T;
+  }
+
+  // Draw the dieline using the dynamically calculated MANUFACTURE dimensions
   const dieline = useMemo(() => {
-    return generateRTEDieline({ L, W, H, T, glueFlapWidth, bleed });
-  }, [L, W, H, T, glueFlapWidth, bleed]);
+    return generateRTEDieline({ L: manuL, W: manuW, H: manuH, T, glueFlapWidth, bleed });
+  }, [manuL, manuW, manuH, T, glueFlapWidth, bleed]);
 
   const { width, height, cutPaths, bleedPaths, foldLines, dimensions } = dieline;
   const { x1, x2, x3, x4, x5, yTop, yBot } = dimensions;
@@ -155,19 +169,19 @@ const DielineSVG = React.forwardRef(function DielineSVG(props, forwardedRef) {
             fontFamily="sans-serif" 
             fontWeight="bold"
           >
-            <line x1={x1 + 0.05} y1={yBot - H/2} x2={x2 - 0.05} y2={yBot - H/2} markerStart="url(#arrow-cyan-start)" markerEnd="url(#arrow-cyan-end)" />
-            <text x={(x1+x2)/2} y={yBot - H/2 - 0.05 * (view.w/baseW)} textAnchor="middle" stroke="none">
-              {L.toFixed(4)} in
+            <line x1={x1 + 0.05} y1={yBot - manuH/2} x2={x2 - 0.05} y2={yBot - manuH/2} markerStart="url(#arrow-cyan-start)" markerEnd="url(#arrow-cyan-end)" />
+            <text x={(x1+x2)/2} y={yBot - manuH/2 - 0.05 * (view.w/baseW)} textAnchor="middle" stroke="none">
+              {manuL.toFixed(4)} in
             </text>
             
-            <line x1={x2 + 0.05} y1={yBot - H/2} x2={x3 - 0.05} y2={yBot - H/2} markerStart="url(#arrow-cyan-start)" markerEnd="url(#arrow-cyan-end)" />
-            <text x={(x2+x3)/2} y={yBot - H/2 - 0.05 * (view.w/baseW)} textAnchor="middle" stroke="none">
-              {W.toFixed(4)} in
+            <line x1={x2 + 0.05} y1={yBot - manuH/2} x2={x3 - 0.05} y2={yBot - manuH/2} markerStart="url(#arrow-cyan-start)" markerEnd="url(#arrow-cyan-end)" />
+            <text x={(x2+x3)/2} y={yBot - manuH/2 - 0.05 * (view.w/baseW)} textAnchor="middle" stroke="none">
+              {manuW.toFixed(4)} in
             </text>
             
-            <line x1={x3 + L/2} y1={yTop + 0.05} x2={x3 + L/2} y2={yBot - 0.05} markerStart="url(#arrow-cyan-start)" markerEnd="url(#arrow-cyan-end)" />
-            <text x={x3 + L/2 + 0.08 * (view.w/baseW)} y={(yTop+yBot)/2} alignmentBaseline="middle" stroke="none">
-              {H.toFixed(4)} in
+            <line x1={x3 + manuL/2} y1={yTop + 0.05} x2={x3 + manuL/2} y2={yBot - 0.05} markerStart="url(#arrow-cyan-start)" markerEnd="url(#arrow-cyan-end)" />
+            <text x={x3 + manuL/2 + 0.08 * (view.w/baseW)} y={(yTop+yBot)/2} alignmentBaseline="middle" stroke="none">
+              {manuH.toFixed(4)} in
             </text>
           </g>
         )}
@@ -209,14 +223,14 @@ const DielineSVG = React.forwardRef(function DielineSVG(props, forwardedRef) {
               Manufacture dimensions
             </text>
             <text fill={textMuted} x={-pad + 0.2} y={-pad + 0.4 + 0.25 * (view.w/baseW)}>
-              {L.toFixed(4)} × {W.toFixed(4)} × {H.toFixed(4)} in
+              {manuL.toFixed(4)} × {manuW.toFixed(4)} × {manuH.toFixed(4)} in
             </text>
             
             <text x={-pad + 0.2} y={-pad + 0.4 + 0.65 * (view.w/baseW)} fontWeight="bold">
               Inner dimensions
             </text>
             <text fill={textMuted} x={-pad + 0.2} y={-pad + 0.4 + 0.90 * (view.w/baseW)}>
-              {(L - 0.0236).toFixed(4)} × {(W - 0.0236).toFixed(4)} × {(H - 0.0433).toFixed(4)} in
+              {innerL.toFixed(4)} × {innerW.toFixed(4)} × {innerH.toFixed(4)} in
             </text>
           </g>
         )}

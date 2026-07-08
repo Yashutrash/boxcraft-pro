@@ -12,217 +12,257 @@ export function generateRTEDieline({ L, W, H, T = 0.018, glueFlapWidth = 0.625, 
   const x4 = x3 + nL;
   const x5 = x4 + nW;
 
-  // TWO-STAGE TUCK FLAPS
   const coverD = nW; 
   const lipD = 0.625; 
-  const dustD = Math.max(0.3, nW * 0.5 - 0.0625); 
+  const flap1D = coverD + lipD; 
+    const gap = 0.0625;    
+  const vRoot = 0.03125; 
+  const vDrop = 0.125; 
   
+  // DYNAMIC THICKNESS OFFSETS (Pacdora Parity)
+  const actualDustD = Math.max(vDrop + 0.15, (flap1D / 2) - T); 
+  
+  // Fixed the glue flap so it scales naturally without shrinking too much
+  const glueStepBack = Math.max(0.125, T * 1.2);
+  
+  
+
   const yTop = coverD + lipD; 
   const yBot = yTop + nH;
-  
-  // DRAFT ANGLES
-  const gap = 0.03; 
-  const tR = Math.min(0.20, nL * 0.15); 
-  const dR = 0.15;                      
-  
-  const tLVert = 0.0625;
-  const tAngH = 0.125;
-  const tIns = 0.0625;
-  const tDraft = 0.03125;  
-  
-  const dLVert = 0.0625;
-  const dAngH = 0.25;
-  const dIns = 0.125;
-  const dDraft = 0.03125;  
 
-  const xT1L = x1 + gap, xT1R = x2 - gap;
-  const xD1L = x2 + gap, xD1R = x3 - gap;
-  const xN1L = x3 - gap, xN1R = x4 + gap;
-  const xD2L = x4 + gap, xD2R = x5 - gap;
-  
-  const xN2L = x1 + gap, xN2R = x2 - gap;
-  const xD1BL = x2 + gap, xD1BR = x3 - gap;
-  const xT2L = x3 + gap, xT2R = x4 - gap;
-  const xD2BL = x4 + gap, xD2BR = x5 - gap;
-
-  function flatNotch(xL, xR, yBase) {
-    return `M ${xL},${yBase} L ${xR},${yBase}`;
-  }
-
+  // --- MANUFACTURER'S JOINT (Glue Flap) ---
   function gluePath() {
-    const chamf = 0.15;
-    return `M ${x1},${yTop} L ${x0},${yTop + chamf} L ${x0},${yBot - chamf} L ${x1},${yBot}`;
+    return `M ${x1},${yTop} L ${x0},${yTop + glueStepBack} L ${x0},${yBot - glueStepBack} L ${x1},${yBot}`;
   }
 
-  function tuckPath(xL, xR, yBase, dir) {
-    const dY = dir === 1 ? -1 : 1; 
+  // --- BIG TUCK FLAP (Flap I) ---
+function tuckPath(xL, xR, yBase, dir) {
+  const dY = dir === 1 ? -1 : 1;
+  const sweep = dir === 1 ? 1 : 0;
+  const w = xR - xL;
+
+  // scale down as panel gets narrow, same safety pattern as dustPath
+  const tR     = Math.max(0.03, Math.min(0.125, w * 0.15));
+  const tIns   = Math.max(0.0625, Math.min(T * 2, w * 0.12));
+  const tDraft = Math.max(0.03, Math.min(0.0625, w * 0.08));
+  const tLVert = 0.125;
+
     return `M ${xL},${yBase} ` +
-           `L ${xL},${yBase + dY * coverD} ` + 
-           `L ${xL},${yBase + dY * (coverD + tLVert)} ` + 
-           `L ${xL + tIns},${yBase + dY * (coverD + tLVert + tAngH)} ` + 
-           `L ${xL + tIns + tDraft},${yBase + dY * (coverD + lipD - tR)} ` + 
-           `A ${tR} ${tR} 0 0 ${dir === 1 ? 1 : 0} ${xL + tIns + tDraft + tR} ${yBase + dY * (coverD + lipD)} ` +
-           `L ${xR - tIns - tDraft - tR},${yBase + dY * (coverD + lipD)} ` +
-           `A ${tR} ${tR} 0 0 ${dir === 1 ? 1 : 0} ${xR - tIns - tDraft} ${yBase + dY * (coverD + lipD - tR)} ` +
-           `L ${xR - tIns},${yBase + dY * (coverD + tLVert + tAngH)} ` +
-           `L ${xR},${yBase + dY * (coverD + tLVert)} ` +
-           `L ${xR},${yBase + dY * coverD} ` + 
-           `L ${xR},${yBase}`;
+          `L ${xL},${yBase + dY * vRoot} ` + 
+          `L ${xL + gap},${yBase + dY * vDrop} ` + 
+          `L ${xL + gap},${yBase + dY * coverD} ` + 
+          `L ${xL + gap + tIns},${yBase + dY * coverD} ` + 
+          `L ${xL + gap + tIns},${yBase + dY * (coverD + tLVert)} ` + 
+          `L ${xL + gap + tIns + tDraft},${yBase + dY * (coverD + lipD - tR)} ` + 
+          `A ${tR} ${tR} 0 0 ${sweep} ${xL + gap + tIns + tDraft + tR} ${yBase + dY * (coverD + lipD)} ` + 
+          `L ${xR - gap - tIns - tDraft - tR},${yBase + dY * (coverD + lipD)} ` + 
+          `A ${tR} ${tR} 0 0 ${sweep} ${xR - gap - tIns - tDraft} ${yBase + dY * (coverD + lipD - tR)} ` + 
+          `L ${xR - gap - tIns},${yBase + dY * (coverD + tLVert)} ` + 
+          `L ${xR - gap - tIns},${yBase + dY * coverD} ` + 
+          `L ${xR - gap},${yBase + dY * coverD} ` + 
+          `L ${xR - gap},${yBase + dY * vDrop} ` + 
+          `L ${xR},${yBase + dY * vRoot} ` + 
+          `L ${xR},${yBase}`; 
   }
 
-  function dustPath(xL, xR, yBase, dir) {
+  // --- SMALL DUST FLAP (Flap II) ---
+  function dustPath(xL, xR, yBase, dir, sweepSide) {
     const dY = dir === 1 ? -1 : 1;
-    return `M ${xL},${yBase} ` +
-           `L ${xL},${yBase + dY * dLVert} ` +
-           `L ${xL + dIns},${yBase + dY * (dLVert + dAngH)} ` +
-           `L ${xL + dIns + dDraft},${yBase + dY * (dustD - dR)} ` +
-           `A ${dR} ${dR} 0 0 ${dir === 1 ? 1 : 0} ${xL + dIns + dDraft + dR} ${yBase + dY * dustD} ` +
-           `L ${xR - dIns - dDraft - dR},${yBase + dY * dustD} ` +
-           `A ${dR} ${dR} 0 0 ${dir === 1 ? 1 : 0} ${xR - dIns - dDraft} ${yBase + dY * (dustD - dR)} ` +
-           `L ${xR - dIns},${yBase + dY * (dLVert + dAngH)} ` +
-           `L ${xR},${yBase + dY * dLVert} ` +
-           `L ${xR},${yBase}`;
+    const arcSweep = dir === 1 ? 1 : 0;
+    const w = xR - xL;
+    
+    const maxLargeR = actualDustD - vDrop - 0.05;
+    const safeLargeR = Math.max(0.05, Math.min(w * 0.35, maxLargeR));
+    const slantW = Math.max(0.125, w * 0.1); 
+
+    if (sweepSide === 'right') {
+      return `M ${xL},${yBase} ` +
+            `L ${xL},${yBase + dY * vRoot} ` +
+            `L ${xL + gap},${yBase + dY * vDrop} ` +
+            `L ${xL + gap},${yBase + dY * actualDustD} ` +
+            `L ${xR - gap - slantW - safeLargeR},${yBase + dY * actualDustD} ` +
+            `A ${safeLargeR} ${safeLargeR} 0 0 ${arcSweep} ${xR - gap - slantW} ${yBase + dY * (actualDustD - safeLargeR)} ` +
+            `L ${xR - gap},${yBase + dY * vDrop} ` +
+            `L ${xR},${yBase + dY * vRoot} ` +
+            `L ${xR},${yBase}`;
+    } else {
+      return `M ${xL},${yBase} ` +
+            `L ${xL},${yBase + dY * vRoot} ` +
+            `L ${xL + gap},${yBase + dY * vDrop} ` +
+            `L ${xL + gap + slantW},${yBase + dY * (actualDustD - safeLargeR)} ` +
+            `A ${safeLargeR} ${safeLargeR} 0 0 ${arcSweep} ${xL + gap + slantW + safeLargeR} ${yBase + dY * actualDustD} ` +
+            `L ${xR - gap},${yBase + dY * actualDustD} ` +
+            `L ${xR - gap},${yBase + dY * vDrop} ` +
+            `L ${xR},${yBase + dY * vRoot} ` +
+            `L ${xR},${yBase}`;
+    }
   }
 
-  // MATHEMATICALLY PERFECT CONVEX BLEED
+  function getDustBleed(xL, xR, yBase, dir, sweepSide, b) {
+    const dY = dir === 1 ? -1 : 1;
+    const w = xR - xL;
+    
+    const maxLargeR = actualDustD - vDrop - 0.05;
+    const safeLargeR = Math.max(0.05, Math.min(w * 0.35, maxLargeR));
+    const slantW = Math.max(0.125, w * 0.1);
+
+    let s = "";
+    if (dir === 1) {
+      if (sweepSide === 'right') {
+        s += `L ${xL},${yBase - b} `; 
+        s += `L ${xL + gap - b},${yBase - vDrop} `;
+        s += `L ${xL + gap - b},${yBase - actualDustD - b} `; 
+        s += `L ${xR - gap - slantW - safeLargeR},${yBase - actualDustD - b} `;
+        s += `A ${safeLargeR+b} ${safeLargeR+b} 0 0 1 ${xR - gap - slantW + b} ${yBase - actualDustD + safeLargeR} `;
+        s += `L ${xR - gap + b},${yBase - vDrop} `; 
+        s += `L ${xR},${yBase - b} `; 
+      } else {
+        s += `L ${xL},${yBase - b} `;
+        s += `L ${xL + gap - b},${yBase - vDrop} `;
+        s += `L ${xL + gap + slantW - b},${yBase - actualDustD + safeLargeR} `;
+        s += `A ${safeLargeR+b} ${safeLargeR+b} 0 0 1 ${xL + gap + slantW + safeLargeR} ${yBase - actualDustD - b} `;
+        s += `L ${xR - gap + b},${yBase - actualDustD - b} `; 
+        s += `L ${xR - gap + b},${yBase - vDrop} `;
+        s += `L ${xR},${yBase - b} `;
+      }
+    } else {
+      if (sweepSide === 'right') {
+        s += `L ${xR},${yBase + b} `;
+        s += `L ${xR - gap + b},${yBase + vDrop} `;
+        s += `L ${xR - gap - slantW + b},${yBase + actualDustD - safeLargeR} `;
+        s += `A ${safeLargeR+b} ${safeLargeR+b} 0 0 1 ${xR - gap - slantW - safeLargeR} ${yBase + actualDustD + b} `;
+        s += `L ${xL + gap - b},${yBase + actualDustD + b} `; 
+        s += `L ${xL + gap - b},${yBase + vDrop} `;
+        s += `L ${xL},${yBase + b} `;
+      } else {
+        s += `L ${xR},${yBase + b} `;
+        s += `L ${xR - gap + b},${yBase + vDrop} `;
+        s += `L ${xR - gap + b},${yBase + actualDustD + b} `;
+        s += `L ${xL + gap + slantW + safeLargeR},${yBase + actualDustD + b} `;
+        s += `A ${safeLargeR+b} ${safeLargeR+b} 0 0 1 ${xL + gap + slantW - b} ${yBase + actualDustD - safeLargeR} `;
+        s += `L ${xL + gap - b},${yBase + vDrop} `;
+        s += `L ${xL},${yBase + b} `;
+      }
+    }
+    return s;
+  }
+
   function buildContinuousBleed(b) {
     if (b === 0) return [];
     let p = `M ${x1},${yBot + b} `;
-    const chamf = 0.15;
+    
+    const tR = 0.125; 
     const tb = tR + b;
-    const db = dR + b;
+    const tIns = Math.max(0.0625, T * 2); 
+    const tLVert = 0.125; 
+    const tDraft = 0.0625; 
     
     // Left Edge
-    p += `L ${x0 - b},${yBot - chamf} L ${x0 - b},${yTop + chamf} L ${x1},${yTop - b} `;
+    p += `L ${x0 - b},${yBot - glueStepBack} L ${x0 - b},${yTop + glueStepBack} L ${x1},${yTop - b} `;
     
-    // Bridge to Tuck 1
-    p += `L ${xT1L - b},${yTop - b} `;
+    // Panel 1 Tuck Flap
+    p += `L ${x1 + gap - b},${yTop - vDrop} L ${x1 + gap - b},${yTop - coverD} `;
+    p += `L ${x1 + gap + tIns - b},${yTop - coverD} `;
+    p += `L ${x1 + gap + tIns - b},${yTop - coverD - tLVert} L ${x1 + gap + tIns + tDraft - b},${yTop - coverD - lipD + tR} `;
+    p += `A ${tb} ${tb} 0 0 1 ${x1 + gap + tIns + tDraft + tR} ${yTop - coverD - lipD - b} `;
+    p += `L ${x2 - gap - tIns - tDraft - tR},${yTop - coverD - lipD - b} `;
+    p += `A ${tb} ${tb} 0 0 1 ${x2 - gap - tIns - tDraft + b} ${yTop - coverD - lipD + tR} `;
+    p += `L ${x2 - gap - tIns + b},${yTop - coverD - tLVert} L ${x2 - gap - tIns + b},${yTop - coverD} L ${x2 - gap + b},${yTop - coverD} `;
+    p += `L ${x2 - gap + b},${yTop - vDrop} L ${x2},${yTop - b} `;
     
-    // Tuck 1
-    p += `L ${xT1L - b},${yTop - coverD - tLVert} `;
-    p += `L ${xT1L + tIns - b},${yTop - coverD - tLVert - tAngH} `;
-    p += `L ${xT1L + tIns + tDraft - b},${yTop - coverD - lipD + tR} `;
-    p += `A ${tb} ${tb} 0 0 1 ${xT1L + tIns + tDraft + tR} ${yTop - coverD - lipD - b} `;
-    p += `L ${xT1R - tIns - tDraft - tR},${yTop - coverD - lipD - b} `;
-    p += `A ${tb} ${tb} 0 0 1 ${xT1R - tIns - tDraft + b} ${yTop - coverD - lipD + tR} `;
-    p += `L ${xT1R - tIns + b},${yTop - coverD - tLVert - tAngH} `;
-    p += `L ${xT1R + b},${yTop - coverD - tLVert} `;
+    // Vertical drop to stepped Panel 2
+    p += `L ${x2},${yTop + T - b} `;
+    p += getDustBleed(x2, x3, yTop + T, 1, 'right', b); 
     
-    // Bridge to Dust 1
-    p += `L ${xT1R + b},${yTop - dLVert - b} `;
-    p += `L ${xD1L + dIns - b},${yTop - dLVert - dAngH - b} `;
+    // Vertical rise back to Panel 3
+    p += `L ${x3},${yTop - b} `;
+    p += `L ${x4},${yTop - b} `;
     
-    // Dust 1
-    p += `L ${xD1L + dIns + dDraft - b},${yTop - dustD + dR} `;
-    p += `A ${db} ${db} 0 0 1 ${xD1L + dIns + dDraft + dR} ${yTop - dustD - b} `;
-    p += `L ${xD1R - dIns - dDraft - dR},${yTop - dustD - b} `;
-    p += `A ${db} ${db} 0 0 1 ${xD1R - dIns - dDraft + b} ${yTop - dustD + dR} `;
-    p += `L ${xD1R - dIns + b},${yTop - dLVert - dAngH - b} `;
+    // Vertical drop to stepped Panel 4
+    p += `L ${x4},${yTop + T - b} `;
+    p += getDustBleed(x4, x5, yTop + T, 1, 'left', b);
     
-    // Bridge to Notch
-    p += `L ${xD1R + b},${yTop - dLVert - b} `;
-    p += `L ${xD1R + b},${yTop - b} `;
-    p += `L ${xD2L - b},${yTop - b} `;
+    // Right Edge
+    p += `L ${x5 + b},${yTop + T - b} L ${x5 + b},${yBot - T + b} `;
     
-    // Bridge to Dust 2
-    p += `L ${xD2L - b},${yTop - dLVert - b} `;
-    p += `L ${xD2L + dIns - b},${yTop - dLVert - dAngH - b} `;
+    // Bottom Dust Flap (Panel 4)
+    p += getDustBleed(x4, x5, yBot - T, -1, 'right', b); 
     
-    // Dust 2
-    p += `L ${xD2L + dIns + dDraft - b},${yTop - dustD + dR} `;
-    p += `A ${db} ${db} 0 0 1 ${xD2L + dIns + dDraft + dR} ${yTop - dustD - b} `;
-    p += `L ${xD2R - dIns - dDraft - dR},${yTop - dustD - b} `;
-    p += `A ${db} ${db} 0 0 1 ${xD2R - dIns - dDraft + b} ${yTop - dustD + dR} `;
-    p += `L ${xD2R - dIns + b},${yTop - dLVert - dAngH - b} `;
+    // Vertical step outward to Panel 3
+    p += `L ${x4},${yBot + b} `;
+    p += `L ${x4 - gap + b},${yBot + vDrop} L ${x4 - gap + b},${yBot + coverD} `;
+    p += `L ${x4 - gap - tIns + b},${yBot + coverD} `;
+    p += `L ${x4 - gap - tIns + b},${yBot + coverD + tLVert} L ${x4 - gap - tIns - tDraft + b},${yBot + coverD + lipD - tR} `;
+    p += `A ${tb} ${tb} 0 0 1 ${x4 - gap - tIns - tDraft - tR} ${yBot + coverD + lipD + b} `;
+    p += `L ${x3 + gap + tIns + tDraft + tR},${yBot + coverD + lipD + b} `;
+    p += `A ${tb} ${tb} 0 0 1 ${x3 + gap + tIns + tDraft - b} ${yBot + coverD + lipD - tR} `;
+    p += `L ${x3 + gap + tIns - b},${yBot + coverD + tLVert} L ${x3 + gap + tIns - b},${yBot + coverD} L ${x3 + gap - b},${yBot + coverD} `;
+    p += `L ${x3 + gap - b},${yBot + vDrop} L ${x3},${yBot + b} `;
     
-    // Bridge to Right Edge
-    p += `L ${xD2R + b},${yTop - dLVert - b} `;
-    p += `L ${xD2R + b},${yTop - b} `;
-    p += `L ${x5 + b},${yTop - b} `;
-    p += `L ${x5 + b},${yBot + b} `;
+    // Vertical step inward to Panel 2
+    p += `L ${x3},${yBot - T + b} `;
+    p += getDustBleed(x2, x3, yBot - T, -1, 'left', b); 
     
-    // Bottom Dust 2
-    p += `L ${xD2BR + b},${yBot + dLVert + b} `;
-    p += `L ${xD2BR - dIns + b},${yBot + dLVert + dAngH + b} `;
-    p += `L ${xD2BR - dIns - dDraft + b},${yBot + dustD - dR} `;
-    p += `A ${db} ${db} 0 0 1 ${xD2BR - dIns - dDraft - dR} ${yBot + dustD + b} `;
-    p += `L ${xD2BL + dIns + dDraft + dR},${yBot + dustD + b} `;
-    p += `A ${db} ${db} 0 0 1 ${xD2BL + dIns + dDraft - b} ${yBot + dustD - dR} `;
-    p += `L ${xD2BL + dIns - b},${yBot + dLVert + dAngH + b} `;
-    
-    // Bridge to Tuck 2
-    p += `L ${xD2BL - b},${yBot + dLVert + b} `;
-    p += `L ${xD2BL - b},${yBot + coverD + tLVert} `;
-    
-    // Bottom Tuck 2
-    p += `L ${xT2R - tIns + b},${yBot + coverD + tLVert + tAngH} `;
-    p += `L ${xT2R - tIns - tDraft + b},${yBot + coverD + lipD - tR} `;
-    p += `A ${tb} ${tb} 0 0 1 ${xT2R - tIns - tDraft - tR} ${yBot + coverD + lipD + b} `;
-    p += `L ${xT2L + tIns + tDraft + tR},${yBot + coverD + lipD + b} `;
-    p += `A ${tb} ${tb} 0 0 1 ${xT2L + tIns + tDraft - b} ${yBot + coverD + lipD - tR} `;
-    p += `L ${xT2L + tIns - b},${yBot + coverD + tLVert + tAngH} `;
-    p += `L ${xT2L - b},${yBot + coverD + tLVert} `;
-    
-    // Bridge to Dust 1
-    p += `L ${xT2L - b},${yBot + dLVert + b} `;
-    p += `L ${xD1BR - dIns + b},${yBot + dLVert + dAngH + b} `;
-    
-    // Bottom Dust 1
-    p += `L ${xD1BR - dIns - dDraft + b},${yBot + dustD - dR} `;
-    p += `A ${db} ${db} 0 0 1 ${xD1BR - dIns - dDraft - dR} ${yBot + dustD + b} `;
-    p += `L ${xD1BL + dIns + dDraft + dR},${yBot + dustD + b} `;
-    p += `A ${db} ${db} 0 0 1 ${xD1BL + dIns + dDraft - b} ${yBot + dustD - dR} `;
-    p += `L ${xD1BL + dIns - b},${yBot + dLVert + dAngH + b} `;
-    
-    // Close 
-    p += `L ${xD1BL - b},${yBot + dLVert + b} `;
-    p += `L ${xD1BL - b},${yBot + b} `;
+    // Vertical step outward to Panel 1
+    p += `L ${x2},${yBot + b} `;
     p += `L ${x1},${yBot + b} Z`;
     
     return [p];
   }
 
+  // Arrays mapped with exact vertical cuts connecting the offset panels
   const cutPaths = [
     gluePath(),
-    `M ${x1},${yTop} L ${xT1L},${yTop}`, 
-    tuckPath(xT1L, xT1R, yTop, 1), 
-    `M ${xT1R},${yTop} L ${xD1L},${yTop}`,
-    dustPath(xD1L, xD1R, yTop, 1), 
-    `M ${xD1R},${yTop} L ${xN1L},${yTop}`, 
-    `M ${xN1L},${yTop} L ${xN1R},${yTop}`,
-    `M ${xN1R},${yTop} L ${xD2L},${yTop}`, 
-    dustPath(xD2L, xD2R, yTop, 1), 
-    `M ${xD2R},${yTop} L ${x5},${yTop}`,
-    `M ${x5},${yTop} L ${x5},${yBot}`, 
-    `M ${x5},${yBot} L ${xD2BR},${yBot}`, 
-    dustPath(xD2BL, xD2BR, yBot, -1), 
-    `M ${xD2BL},${yBot} L ${xT2R},${yBot}`,
-    tuckPath(xT2L, xT2R, yBot, -1), 
-    `M ${xT2L},${yBot} L ${xD1BR},${yBot}`, 
-    dustPath(xD1BL, xD1BR, yBot, -1),
-    `M ${xD1BL},${yBot} L ${xN2R},${yBot}`, 
-    `M ${xN2L},${yBot} L ${xN2R},${yBot}`, 
-    `M ${x1},${yBot} L ${xN2L},${yBot}`
+    
+    // Top Profile 
+    tuckPath(x1, x2, yTop, 1), 
+    `M ${x2},${yTop} L ${x2},${yTop + T}`, 
+    dustPath(x2, x3, yTop + T, 1, 'right'), 
+    `M ${x3},${yTop + T} L ${x3},${yTop}`, 
+    `M ${x3},${yTop} L ${x4},${yTop}`, 
+    `M ${x4},${yTop} L ${x4},${yTop + T}`, 
+    dustPath(x4, x5, yTop + T, 1, 'left'), 
+    
+    // Right Edge
+    `M ${x5},${yTop + T} L ${x5},${yBot - T}`, 
+    
+    // Bottom Profile (Drawn Right to Left)
+    dustPath(x4, x5, yBot - T, -1, 'right'), 
+    `M ${x4},${yBot - T} L ${x4},${yBot}`, 
+    tuckPath(x3, x4, yBot, -1), 
+    `M ${x3},${yBot} L ${x3},${yBot - T}`, 
+    dustPath(x2, x3, yBot - T, -1, 'left'),
+    `M ${x2},${yBot - T} L ${x2},${yBot}`, 
+    `M ${x2},${yBot} L ${x1},${yBot}` 
   ];
 
+  // The horizontal folds are now broken into perfectly mapped, stepped segments
   const foldLines = [
+    // Vertical Folds (stopping precisely at the inner offsets to avoid overlapping the cuts)
     { x1: x1, y1: yTop, x2: x1, y2: yBot }, 
-    { x1: x2, y1: yTop, x2: x2, y2: yBot },
-    { x1: x3, y1: yTop, x2: x3, y2: yBot }, 
-    { x1: x4, y1: yTop, x2: x4, y2: yBot },
-    { x1: x1, y1: yTop, x2: x3, y2: yTop }, 
-    { x1: x4, y1: yTop, x2: x5, y2: yTop }, 
-    { x1: x2, y1: yBot, x2: x5, y2: yBot },
-    { x1: xT1L, y1: yTop - coverD, x2: xT1R, y2: yTop - coverD }, 
-    { x1: xT2L, y1: yBot + coverD, x2: xT2R, y2: yBot + coverD }  
+    { x1: x2, y1: yTop + T, x2: x2, y2: yBot - T },
+    { x1: x3, y1: yTop + T, x2: x3, y2: yBot - T }, 
+    { x1: x4, y1: yTop + T, x2: x4, y2: yBot - T },
+    
+    // Horizontal Panel Folds
+    { x1: x1, y1: yTop, x2: x2, y2: yTop },           
+    { x1: x2, y1: yTop + T, x2: x3, y2: yTop + T },   
+    { x1: x3, y1: yTop, x2: x4, y2: yTop },           
+    { x1: x4, y1: yTop + T, x2: x5, y2: yTop + T },   
+    
+    { x1: x1, y1: yBot, x2: x2, y2: yBot },           
+    { x1: x2, y1: yBot - T, x2: x3, y2: yBot - T },   
+    { x1: x3, y1: yBot, x2: x4, y2: yBot },           
+    { x1: x4, y1: yBot - T, x2: x5, y2: yBot - T },   
+    
+    // Tuck Lip Folds
+    { x1: x1, y1: yTop - coverD, x2: x2, y2: yTop - coverD }, 
+    { x1: x3, y1: yBot + coverD, x2: x4, y2: yBot + coverD }  
   ];
 
   return {
-    width: x5, 
-    height: yBot + coverD + lipD, 
-    cutPaths,
-    bleedPaths: buildContinuousBleed(nBleed), 
-    foldLines,
+    width: x5, height: yBot + coverD + lipD, cutPaths,
+    bleedPaths: buildContinuousBleed(nBleed), foldLines,
     dimensions: { L: nL, W: nW, H: nH, x1, x2, x3, x4, x5, yTop, yBot }
   };
 }

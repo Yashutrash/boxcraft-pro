@@ -9,6 +9,14 @@ export const useBoxStore = create((set) => ({
   glueFlapWidth: 0.625,
   bleed: 0.125,
 
+  // Material Tracker (Paperboard vs Corrugated)
+  materialType: "paperboard",
+  setMaterialType: (type, defaultT) => set({ materialType: type, T: defaultT }),
+
+  // Size Mode (manufacture, inner, outer)
+  sizeMode: "manufacture",
+  setSizeMode: (mode) => set({ sizeMode: mode }),
+
   // Line Colors
   trimColor: "#3b82f6",
   creaseColor: "#ef4444",
@@ -29,7 +37,7 @@ export const useBoxStore = create((set) => ({
 
   // Actions
   setDim: (key, value) => set(() => ({ 
-    [key]: Math.max(0.01, Number(value) || 0) 
+    [key]: Math.max(0.01, Number(value) || 0.01) 
   })),
   
   setColor: (key, value) => set(() => ({ 
@@ -40,7 +48,8 @@ export const useBoxStore = create((set) => ({
     [key]: !state[key] 
   })),
   
+  // Relaxed store setter to allow the UI to manage typing and clamping securely
   setMaterial: (thickness) => set({ 
-    T: thickness 
+    T: Number(thickness) || 0.0197 
   }),
 }));

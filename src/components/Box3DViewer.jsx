@@ -73,7 +73,7 @@ function DustFlap({ length, depth, hingeAxis, outwardSign, flapAngle, color }) {
 function Box({ L, W, H, foldAngle, flapAngle }) {
   const coverDepth = W;
   const lipDepth = 0.625;
-  const dustDepth = Math.max(W * 0.4, 0.3);
+  const dustDepth = (coverDepth + lipDepth) / 2;
 
   return (
     <group>
@@ -84,54 +84,25 @@ function Box({ L, W, H, foldAngle, flapAngle }) {
 
       <Wall length={L} height={H} thickness={T} pivot={[0, 0, W / 2]} hingeAxis="x" outwardSign={1} foldAngle={foldAngle} color="#efe1bd">
         {({ hingeAxis, outwardSign }) => (
-          <TwoStageTuckFlap 
-            length={L} 
-            coverDepth={coverDepth} 
-            lipDepth={lipDepth} 
-            hingeAxis={hingeAxis} 
-            outwardSign={outwardSign} 
-            flapAngle={flapAngle} 
-            color="#f4ecd4" 
-          />
+          <TwoStageTuckFlap length={L} coverDepth={coverDepth} lipDepth={lipDepth} hingeAxis={hingeAxis} outwardSign={outwardSign} flapAngle={flapAngle} color="#f4ecd4" />
         )}
       </Wall>
 
       <Wall length={L} height={H} thickness={T} pivot={[0, 0, -W / 2]} hingeAxis="x" outwardSign={-1} foldAngle={foldAngle} color="#e6d7ae">
         {({ hingeAxis, outwardSign }) => (
-          <DustFlap 
-            length={L} 
-            depth={dustDepth} 
-            hingeAxis={hingeAxis} 
-            outwardSign={outwardSign} 
-            flapAngle={flapAngle} 
-            color="#ecdfba" 
-          />
+          <DustFlap length={L} depth={dustDepth} hingeAxis={hingeAxis} outwardSign={outwardSign} flapAngle={flapAngle} color="#ecdfba" />
         )}
       </Wall>
 
       <Wall length={W} height={H} thickness={T} pivot={[-L / 2, 0, 0]} hingeAxis="z" outwardSign={-1} foldAngle={foldAngle} color="#e2d3a5">
         {({ hingeAxis, outwardSign }) => (
-          <DustFlap 
-            length={W} 
-            depth={dustDepth} 
-            hingeAxis={hingeAxis} 
-            outwardSign={outwardSign} 
-            flapAngle={flapAngle} 
-            color="#e9dbb2" 
-          />
+          <DustFlap length={W} depth={dustDepth} hingeAxis={hingeAxis} outwardSign={outwardSign} flapAngle={flapAngle} color="#e9dbb2" />
         )}
       </Wall>
 
       <Wall length={W} height={H} thickness={T} pivot={[L / 2, 0, 0]} hingeAxis="z" outwardSign={1} foldAngle={foldAngle} color="#e2d3a5">
         {({ hingeAxis, outwardSign }) => (
-          <DustFlap 
-            length={W} 
-            depth={dustDepth} 
-            hingeAxis={hingeAxis} 
-            outwardSign={outwardSign} 
-            flapAngle={flapAngle} 
-            color="#e9dbb2" 
-          />
+          <DustFlap length={W} depth={dustDepth} hingeAxis={hingeAxis} outwardSign={outwardSign} flapAngle={flapAngle} color="#e9dbb2" />
         )}
       </Wall>
     </group>
