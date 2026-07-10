@@ -11,7 +11,7 @@ const DielineSVG = React.forwardRef(function DielineSVG(props, forwardedRef) {
     L, W, H, T, sizeMode, glueFlapWidth, bleed, 
     trimColor, creaseColor, bleedColor, dimColor, 
     showOverallDims, showBasicDims, showBleedLine, showAnnotations, 
-    theme 
+    theme, generatorMethod
   } = useBoxStore();
 
   // --- THE PACDORA 2T MATH REVEALED IN THE VIDEO ---
@@ -29,8 +29,8 @@ const DielineSVG = React.forwardRef(function DielineSVG(props, forwardedRef) {
 
   // Draw the dieline using the dynamically calculated MANUFACTURE dimensions
   const dieline = useMemo(() => {
-    return generateRTEDieline({ L: manuL, W: manuW, H: manuH, T, glueFlapWidth, bleed });
-  }, [manuL, manuW, manuH, T, glueFlapWidth, bleed]);
+    return generateRTEDieline({ L: manuL, W: manuW, H: manuH, T, glueFlapWidth, bleed, method: generatorMethod });
+  }, [manuL, manuW, manuH, T, glueFlapWidth, bleed, generatorMethod]);
 
   const { width, height, cutPaths, bleedPaths, foldLines, dimensions } = dieline;
   const { x1, x2, x3, x4, x5, yTop, yBot } = dimensions;

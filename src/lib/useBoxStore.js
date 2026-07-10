@@ -7,7 +7,7 @@ export const useBoxStore = create((set) => ({
   H: 6.2992,
   T: 0.0197, 
   glueFlapWidth: 0.625,
-  bleed: 0.125,
+  bleed: 2 / 25.4,
 
   // Material Tracker (Paperboard vs Corrugated)
   materialType: "paperboard",
@@ -52,4 +52,8 @@ export const useBoxStore = create((set) => ({
   setMaterial: (thickness) => set({ 
     T: Number(thickness) || 0.0197 
   }),
+
+  // Dieline Generator Method ("legacy" or "dxf")
+  generatorMethod: "legacy",
+  setGeneratorMethod: (method) => set({ generatorMethod: method }),
 }));

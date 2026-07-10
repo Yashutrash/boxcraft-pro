@@ -1,7 +1,8 @@
 import React, { useRef, useState } from "react";
 import DielineSVG from "../src/components/DielineSVG";
 import Box3DViewer from "../src/components/Box3DViewer";
-import { exportSVG, exportPDF } from "../src/lib/exportUtils";
+import { exportSVG, exportPDF, exportDXF } from "../src/lib/exportUtils";
+import { generateRTEDieline } from "../src/lib/rteDielineGenerator";
 import { useBoxStore } from "../src/lib/useBoxStore";
 
 const themes = {
@@ -227,6 +228,28 @@ export default function Home() {
               <button className={`size-mode-btn ${store.sizeMode === 'inner' ? 'active' : ''}`} onClick={() => store.setSizeMode("inner")}>Inner<br/>dimensions</button>
             </div>
             <button className={`size-mode-btn ${store.sizeMode === 'outer' ? 'active' : ''}`} style={{ width: "100%", padding: "12px" }} onClick={() => store.setSizeMode("outer")}>Outer dimensions</button>
+
+            <hr style={{ borderColor: t.border, margin: "24px 0" }} />
+
+            <h3 style={{ margin: "0 0 16px 0", fontSize: 15, fontWeight: "600", display: "flex", alignItems: "center", gap: 6 }}>
+              Dieline Engine <span style={{ color: t.textMuted, fontSize: 14, cursor: "help" }}>ⓘ</span>
+            </h3>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button 
+                className={`size-mode-btn ${store.generatorMethod === 'legacy' ? 'active' : ''}`} 
+                onClick={() => store.setGeneratorMethod("legacy")}
+                style={{ flex: 1, padding: "12px 8px" }}
+              >
+                Previous Method<br/>(Legacy)
+              </button>
+              <button 
+                className={`size-mode-btn ${store.generatorMethod === 'dxf' ? 'active' : ''}`} 
+                onClick={() => store.setGeneratorMethod("dxf")}
+                style={{ flex: 1, padding: "12px 8px" }}
+              >
+                DXF Method<br/>(New)
+              </button>
+            </div>
           </div>
 
           <div style={{ flex: 1, position: "relative", background: t.bgCanvas }}>
@@ -278,14 +301,26 @@ export default function Home() {
           <div style={{ width: "320px", padding: "24px", background: t.bgPanel, borderLeft: `1px solid ${t.border}`, overflowY: "auto", display: "flex", flexDirection: "column", gap: 24 }}>
             <div style={{ background: t.bgApp, borderRadius: 8, border: `1px solid ${t.border}`, height: "220px", position: "relative", overflow: "hidden", display: "flex", justifyContent: "center", alignItems: "center" }}>
               <div style={{ position: "absolute", top: 12, right: 12, background: t.bgPanel, border: `1px solid ${t.border}`, padding: "4px 10px", borderRadius: 4, fontSize: 10, fontWeight: "600", zIndex: 10 }}>3D Preview</div>
-              <div style={{ width: "100%", height: "100%" }}><Box3DViewer L={manuL} W={manuW} H={manuH} /></div>
+              <div style={{ width: "100%", height: "100%" }}><Box3DViewer L={manuL} W={manuW} H={manuH} T={T} /></div>
             </div>
             <div>
               <h3 style={{ margin: "0 0 16px 0", fontSize: 15, fontWeight: "600" }}>File formats</h3>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
                 <button className="format-btn"><span style={{ color: "#f97316", background: store.theme === 'dark' ? "#f9731622" : "#ffedd5", padding: "2px 4px", borderRadius: 4 }}>Ai</span> Dieline</button>
                 <button className="format-btn"><span style={{ color: "#ef4444", background: store.theme === 'dark' ? "#ef444422" : "#fee2e2", padding: "2px 4px", borderRadius: 4 }}>PDF</span> Dieline</button>
-                <button className="format-btn"><span style={{ color: "#a1a1aa", background: store.theme === 'dark' ? "#a1a1aa22" : "#f4f4f5", padding: "2px 4px", borderRadius: 4 }}>DXF</span> Dieline</button>
+                <button 
+                  onClick={() => {
+                    const dieline = generateRTEDieline({
+                      L: manuL, W: manuW, H: manuH, T: store.T,
+                      glueFlapWidth: store.glueFlapWidth, bleed: store.bleed,
+                      method: store.generatorMethod
+                    });
+                    exportDXF(dieline, `boxcraft_${store.generatorMethod}_dieline.dxf`);
+                  }}
+                  className="format-btn"
+                >
+                  <span style={{ color: "#a1a1aa", background: store.theme === 'dark' ? "#a1a1aa22" : "#f4f4f5", padding: "2px 4px", borderRadius: 4 }}>DXF</span> Dieline
+                </button>
                 <button className="format-btn"><span style={{ color: "#10b981", background: store.theme === 'dark' ? "#10b98122" : "#d1fae5", padding: "2px 4px", borderRadius: 4 }}>3D</span> Mockup</button>
               </div>
               <h3 style={{ margin: "0 0 12px 0", fontSize: 13, fontWeight: "600" }}>You will get</h3>
