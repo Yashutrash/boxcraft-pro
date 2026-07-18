@@ -1,0 +1,51 @@
+export function generateCardboardCanvas(materialPreset, packageColor) {
+  if (typeof window === "undefined") return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext("2d");
+
+  // Pacdora exact base color match
+  let hex = "#C6A075"; 
+  if (materialPreset === "white-kraft") hex = "#e8e5df";
+  if (materialPreset === "matte-black") hex = "#222222";
+  
+  if (packageColor && packageColor !== "transparent") {
+    hex = packageColor;
+  }
+
+  ctx.fillStyle = hex;
+  ctx.fillRect(0, 0, 1024, 1024);
+
+  // Generate organic fiber noise
+  for (let i = 0; i < 40000; i++) {
+    const x = Math.random() * 1024;
+    const y = Math.random() * 1024;
+    const length = Math.random() * 5 + 2;
+    const angle = Math.random() * Math.PI * 2;
+    
+    // Mix of dark flecks and light fibers
+    const isDark = Math.random() > 0.4;
+    ctx.strokeStyle = isDark ? "rgba(0, 0, 0, 0.035)" : "rgba(255, 255, 255, 0.045)";
+    ctx.lineWidth = Math.random() * 0.8 + 0.2;
+    
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
+    ctx.stroke();
+  }
+
+  // Soft overall noise
+  const noiseData = ctx.getImageData(0, 0, 1024, 1024);
+  const data = noiseData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const noise = (Math.random() - 0.5) * 8;
+    data[i] = Math.min(255, Math.max(0, data[i] + noise));
+    data[i+1] = Math.min(255, Math.max(0, data[i+1] + noise));
+    data[i+2] = Math.min(255, Math.max(0, data[i+2] + noise));
+  }
+  ctx.putImageData(noiseData, 0, 0);
+
+  return canvas;
+}

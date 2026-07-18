@@ -11,20 +11,24 @@ export const useBoxStore = create((set) => ({
 
   // Material Tracker (Paperboard vs Corrugated)
   materialType: "paperboard",
-  setMaterialType: (type, defaultT) => set({ materialType: type, T: defaultT }),
+  setMaterialType: (type, defaultT) => set({ 
+    materialType: type, 
+    T: defaultT,
+    generatorMethod: "dxf"
+  }),
 
   // Size Mode (manufacture, inner, outer)
   sizeMode: "manufacture",
   setSizeMode: (mode) => set({ sizeMode: mode }),
 
   // Line Colors
-  trimColor: "#3b82f6",
-  creaseColor: "#ef4444",
-  bleedColor: "#10b981",
-  dimColor: "#06b6d4",
+  trimColor: "#0055ff", // Bright Pure Blue
+  creaseColor: "#ff0000", // Bright Pure Red
+  bleedColor: "#00cc00", // Bright Pure Green
+  dimColor: "#00a2ff", // Bright Cyan
 
   // Theme State
-  theme: "dark",
+  theme: "light",
   toggleTheme: () => set((state) => ({ 
     theme: state.theme === "dark" ? "light" : "dark" 
   })),
@@ -32,8 +36,9 @@ export const useBoxStore = create((set) => ({
   // Visibility
   showOverallDims: false,
   showBasicDims: true,
-  showBleedLine: true,
+  showBleedLine: false,
   showAnnotations: true,
+  showMaterialZone: false,
 
   // Actions
   setDim: (key, value) => set(() => ({ 
@@ -48,12 +53,32 @@ export const useBoxStore = create((set) => ({
     [key]: !state[key] 
   })),
   
+  toggleMaterialZone: () => set((state) => ({
+    showMaterialZone: !state.showMaterialZone
+  })),
+  
   // Relaxed store setter to allow the UI to manage typing and clamping securely
   setMaterial: (thickness) => set({ 
     T: Number(thickness) || 0.0197 
   }),
 
   // Dieline Generator Method ("legacy" or "dxf")
-  generatorMethod: "legacy",
+  generatorMethod: "dxf",
   setGeneratorMethod: (method) => set({ generatorMethod: method }),
+
+  // Scene Layout
+  sceneLayout: "single",
+  setSceneLayout: (layout) => set({ sceneLayout: layout }),
+
+  // Package Color
+  packageColor: null,
+  setPackageColor: (color) => set({ packageColor: color }),
+  insideColor: null,
+  setInsideColor: (color) => set({ insideColor: color }),
+
+  // Decals (Text, Images, Logos)
+  decals: [],
+  setDecals: (decalsOrUpdater) => set((state) => ({ 
+    decals: typeof decalsOrUpdater === "function" ? decalsOrUpdater(state.decals) : decalsOrUpdater 
+  })),
 }));

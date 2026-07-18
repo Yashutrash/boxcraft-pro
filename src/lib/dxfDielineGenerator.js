@@ -326,64 +326,103 @@ export function generateRTEDielineDXF({ L, W, H, T = 0.018, glueFlapWidth = 0.62
     if (layer !== 'cuts' && layer !== 'bleeds') return;
 
     // Use global Y mapping for bleed, per-panel Y mapping for cuts
-    const mapPt = layer === 'bleeds' ? deformPointBleed : deformPoint;
-
     if (entity.type === 'LINE') {
-      const p1 = mapPt([entity.x1, entity.y1]);
-      const p2 = mapPt([entity.x2, entity.y2]);
-      segmentsByLayer[layer].push({
-        start: p1,
-        end: p2,
-        svgCmd: `L ${p2[0]},${p2[1]}`
-      });
+      const p1 = (layer === 'bleeds' ? deformPointBleed : deformPoint)([entity.x1, entity.y1]);
+      const p2 = (layer === 'bleeds' ? deformPointBleed : deformPoint)([entity.x2, entity.y2]);
+      segmentsByLayer[layer].push({ type: 'LINE', pts: [p1, p2] });
     } else if (entity.type === 'LWPOLYLINE') {
-      const pts = entity.vertices.map(pt => mapPt(pt));
+      const pts = entity.vertices.map(pt => (layer === 'bleeds' ? deformPointBleed : deformPoint)(pt));
       if (pts.length < 2) return;
-      let cmd = '';
-      for (let i = 1; i < pts.length; i++) {
-        cmd += `L ${pts[i][0]},${pts[i][1]} `;
-      }
-      if (entity.closed) cmd += 'Z';
-      segmentsByLayer[layer].push({
-        start: pts[0],
-        end: pts[pts.length - 1],
-        svgCmd: cmd.trim()
-      });
+      segmentsByLayer[layer].push({ type: 'POLYLINE', pts: pts, closed: entity.closed });
     } else if (entity.type === 'SPLINE') {
-      const pts = entity.controlPoints.map(pt => mapPt(pt));
+      const pts = entity.controlPoints.map(pt => (layer === 'bleeds' ? deformPointBleed : deformPoint)(pt));
       if (pts.length < 4) return;
-      segmentsByLayer[layer].push({
-        start: pts[0],
-        end: pts[3],
-        svgCmd: `C ${pts[1][0]},${pts[1][1]} ${pts[2][0]},${pts[2][1]} ${pts[3][0]},${pts[3][1]}`
-      });
+      segmentsByLayer[layer].push({ type: 'SPLINE', pts: pts });
     }
   });
 
   // Chain segments into continuous SVG paths
   function chainSegments(segments) {
-    if (segments.length === 0) return [];
-    
-    const paths = [];
-    let currentPath = `M ${segments[0].start[0]},${segments[0].start[1]} ${segments[0].svgCmd}`;
-    let currentEnd = segments[0].end;
+    if (!segments || segments.length === 0) return [];
 
-    for (let i = 1; i < segments.length; i++) {
-      const seg = segments[i];
-      
-      if (nearlyEqual(currentEnd, seg.start)) {
-        // Connected — append without a new M command
-        currentPath += ` ${seg.svgCmd}`;
-      } else {
-        // Disconnected — start a new path
-        paths.push(currentPath);
-        currentPath = `M ${seg.start[0]},${seg.start[1]} ${seg.svgCmd}`;
-      }
-      currentEnd = seg.end;
+    function nearlyEqual(a, b, tol = 0.2) {
+      return Math.abs(a[0] - b[0]) < tol && Math.abs(a[1] - b[1]) < tol;
     }
-    
-    paths.push(currentPath);
-    return paths;
+
+    function reverseSegment(seg) {
+      if (seg.type === 'LINE' || seg.type === 'POLYLINE') {
+        return { ...seg, pts: [...seg.pts].reverse() };
+      } else if (seg.type === 'SPLINE') {
+        return { 
+          type: 'SPLINE', 
+          pts: [seg.pts[3], seg.pts[2], seg.pts[1], seg.pts[0]] 
+        };
+      }
+      return seg;
+    }
+
+    let pool = [...segments];
+    let chains = [];
+
+    while (pool.length > 0) {
+      let chain = [pool.shift()];
+      let changed = true;
+
+      while (changed) {
+        changed = false;
+        let head = chain[0].pts[0];
+        let tail = chain[chain.length - 1].pts[chain[chain.length - 1].pts.length - 1];
+
+        for (let i = 0; i < pool.length; i++) {
+          let cand = pool[i];
+          let candHead = cand.pts[0];
+          let candTail = cand.pts[cand.pts.length - 1];
+
+          if (nearlyEqual(tail, candHead)) {
+            chain.push(cand);
+            pool.splice(i, 1);
+            changed = true;
+            break;
+          } else if (nearlyEqual(tail, candTail)) {
+            chain.push(reverseSegment(cand));
+            pool.splice(i, 1);
+            changed = true;
+            break;
+          } else if (nearlyEqual(head, candTail)) {
+            chain.unshift(cand);
+            pool.splice(i, 1);
+            changed = true;
+            break;
+          } else if (nearlyEqual(head, candHead)) {
+            chain.unshift(reverseSegment(cand));
+            pool.splice(i, 1);
+            changed = true;
+            break;
+          }
+        }
+      }
+      chains.push(chain);
+    }
+
+    return chains.map(chain => {
+      let d = `M ${chain[0].pts[0][0].toFixed(5)},${chain[0].pts[0][1].toFixed(5)}`;
+      
+      chain.forEach(seg => {
+        // Explicitly draw a line to the start of the next segment to bridge any gap
+        d += ` L ${seg.pts[0][0].toFixed(5)},${seg.pts[0][1].toFixed(5)}`;
+        
+        if (seg.type === 'LINE') {
+          d += ` L ${seg.pts[1][0].toFixed(5)},${seg.pts[1][1].toFixed(5)}`;
+        } else if (seg.type === 'POLYLINE') {
+          for (let i = 1; i < seg.pts.length; i++) {
+            d += ` L ${seg.pts[i][0].toFixed(5)},${seg.pts[i][1].toFixed(5)}`;
+          }
+        } else if (seg.type === 'SPLINE') {
+          d += ` C ${seg.pts[1][0].toFixed(5)},${seg.pts[1][1].toFixed(5)} ${seg.pts[2][0].toFixed(5)},${seg.pts[2][1].toFixed(5)} ${seg.pts[3][0].toFixed(5)},${seg.pts[3][1].toFixed(5)}`;
+        }
+      });
+      return d;
+    });
   }
 
   const cutPaths = chainSegments(segmentsByLayer.cuts);
