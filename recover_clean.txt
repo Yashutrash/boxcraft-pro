@@ -1,0 +1,1739 @@
+CONTENT:
+Created At: 2026-07-14T09:29:41Z
+Completed At: 2026-07-14T09:29:41Z
+File Path: `file:///c:/Users/yashg/boxcraft-pro/src/components/Box3DViewer.jsx`
+Total Lines: 439
+Total Bytes: 21602
+Showing lines 1 to 439
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: import React, { useMemo } from "react";
+2: import { Canvas } from "@react-three/fiber";
+3: import { OrbitControls } from "@react-three/drei";
+4: import * as THREE from "three";
+5: 
+6: // ─────────────────────────────────────────────────────────────────────────────
+7: // PROCEDURAL TEXTURE GENERATOR
+8: // Creates a canvas-based material texture for each preset.
+9: // Includes organic fiber grain and diagonal "Dacdora" watermarks.
+10: // ─────────────────────────────────────────────────────────────────────────────
+11: function createProceduralTexture(materialPreset) {
+12:   if (typeof window === "undefined") return null;
+13:   const canvas = document.createElement("canvas");
+14:   canvas.width = 1024;
+15:   canvas.height = 1024;
+16:   const ctx = canvas.getContext("2d");
+17: 
+18:   let baseColor, fiberColor, watermarkColor, isCorrugated = false;
+19: 
+20:   switch (materialPreset) {
+21:     case "natural-kraft":
+22:       baseColor       = "#bfa48c";
+23:       fiberColor      = "rgba(80,55,25,0.06)";
+24:       watermarkColor  = "rgba(255,255,255,0.14)";
+25:       break;
+26:     case "corrugated-kraft":
+27:       baseColor       = "#a6886e";
+28:       isCorrugated    = true;
+29:       fiberColor      = "rgba(65,42,18,0.07)";
+30:       watermarkColor  = "rgba(255,255,255,0.16)";
+31:       break;
+32:     case "matte-black":
+33:       baseColor       = "#1c1c1c";
+34:       fiberColor      = "rgba(255,255,255,0.015)";
+35:       watermarkColor  = "rgba(255,255,255,0.04)";
+36:       break;
+37:     case "gold-foil":
+38:       baseColor       = "#d4a840";
+39:       fiberColor      = "rgba(255,255,255,0.07)";
+40:       watermarkColor  = "rgba(255,255,255,0.10)";
+41:       break;
+42:     default: // white-kraft / white paperboard
+43:       baseColor       = "#f3f0eb";
+44:       fiberColor      = "rgba(170,158,140,0.045)";
+45:       watermarkColor  = "rgba(0,0,0,0.038)";
+46:   }
+47: 
+48:   // 1. Base paper fill
+49:   ctx.fillStyle = baseColor;
+50:   ctx.fillRect(0, 0, 1024, 1024);
+51: 
+52:   // 2. Organic horizontal fiber noise (paper grain direction)
+53:   for (let i = 0; i < 5000; i++) {
+54:     const x = Math.random() * 1024;
+55:     const y = Math.random() * 1024;
+56:     const w = 2 + Math.random() * 4;
+57:     ctx.fillStyle = Math.random() > 0.5 ? fiberColor : "rgba(255,255,255,0.018)";
+58:     ctx.fillRect(x, y, w, 1);
+59:   }
+60: 
+61:   // 3. Corrugated E-flute vertical ribbing
+62:   if (isCorrugated) {
+63:     for (let x = 0; x < 1024; x += 16) {
+64:       ctx.fillStyle = "rgba(0,0,0,0.07)";
+65:       ctx.fillRect(x, 0, 4, 1024);
+66:       ctx.fillStyle = "rgba(255,255,255,0.04)";
+67:       ctx.fillRect(x + 4, 0, 3, 1024);
+68:       ctx.fillStyle = "rgba(0,0,0,0.025)";
+69:       ctx.fillRect(x + 8, 0, 2, 1024);
+70:     }
+71:   }
+72: 
+73:   // 4. Diagonal "Dacdora" repeating watermarks
+74:   ctx.save();
+75:   ctx.translate(512, 512);
+76:   ctx.rotate(-Math.PI / 6); // 30° tilt
+77:   ctx.translate(-512, -512);
+78:   ctx.fillStyle = watermarkColor;
+79:   ctx.font = "bold 21px sans-serif";
+80:   ctx.textAlign = "center";
+81:   for (let row = -200; row < 1300; row += 105) {
+82:     const shift = ((row / 105) % 2 === 0) ? 100 : 0;
+83:     for (let col = -200; col < 1300; col += 210) {
+84:       ctx.fillText("Dacdora", col + shift, row);
+85:     }
+86:   }
+87:   ctx.restore();
+88: 
+89:   const tex = new THREE.CanvasTexture(canvas);
+90:   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+91:   return tex;
+92: }
+93: 
+94: // ─────────────────────────────────────────────────────────────────────────────
+95: // SMOOTH EASE-IN-OUT (cubic)
+96: // ─────────────────────────────────────────────────────────────────────────────
+97: const easeInOut = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+98: 
+99: function stageProgress(progress, start, end) {
+100:   return easeInOut(Math.max(0, Math.min(1, (progress - start) / (end - start))));
+101: }
+102: 
+103: // ─────────────────────────────────────────────────────────────────────────────
+104: // GEOMETRY BUILDER
+105: // All dimensions in inches. Returns all ExtrudeGeometry objects for the box.
+106: // ─────────────────────────────────────────────────────────────────────────────
+107: function buildBoxGeometries(L, W, H, nT) {
+108:   const extrude = { depth: nT, bevelEnabled: false };
+109: 
+110:   // --- Derived flap dimensions (standard straight-tuck box, model 100010) ---
+111:   const coverDepth = W + nT;                             // tuck cover: exactly bridges W + 1 thickness
+112:   const lipDepth   = Math.min(0.58, W * 0.245);          // tuck insert lip ~0.55in
+113:   const dustH      = (coverDepth + lipDepth) * 0.52;     // dust flap height (meets in middle)
+114:   const tIns       = Math.max(0.068, Math.min(0.115, L * 0.079)); // friction-lock ear inset
+115:   const tipR       = Math.min(0.085, L * 0.055);         // tuck cover tip corner radius
+116:   const earW       = 0.060;                              // friction-lock notch width
+117:   const earH       = 0.052;                              // friction-lock notch height
+118:   const slant      = Math.min(0.20, W * 0.135);          // dust flap asymmetric notch slant
+119:   const dustTopR   = Math.min(0.095, W * 0.075);         // dust flap top-corner radius
+120:   const glueFlapW  = Math.min(0.68, W * 0.285);          // glue flap width
+121:   const glueStep   = Math.max(0.115, nT * 1.4);          // glue flap angled step
+122: 
+123:   // ── Panel 1 & 3 (front/back, L × H) ─────────────────────────────────────
+124:   const p13Shape = new THREE.Shape();
+125:   p13Shape.moveTo(-L / 2, -H / 2);
+126:   p13Shape.lineTo( L / 2, -H / 2);
+127:   p13Shape.lineTo( L / 2,  H / 2);
+128:   p13Shape.lineTo(-L / 2,  H / 2);
+129:   p13Shape.closePath();
+130: 
+131:   // ── Panel 2 & 4 (sides, W × (H−2nT), slight offset so edges don't clip) ──
+132:   const p24Shape = new THREE.Shape();
+133:   p24Shape.moveTo(0,  -H / 2 + nT);
+134:   p24Shape.lineTo(W,  -H / 2 + nT);
+135:   p24Shape.lineTo(W,   H / 2 - nT);
+136:   p24Shape.lineTo(0,   H / 2 - nT);
+137:   p24Shape.closePath();
+138: 
+139:   // ── Glue Flap (angled trapezoid, hinges on Panel 1's left edge) ──────────
+140:   const glueShape = new THREE.Shape();
+141:   glueShape.moveTo(0,           H / 2);
+142:   glueShape.lineTo(-glueFlapW,  H / 2 - glueStep);
+143:   glueShape.lineTo(-glueFlapW, -H / 2 + glueStep);
+144:   glueShape.lineTo(0,          -H / 2);
+145:   glueShape.closePath();
+146: 
+147:   // ── Tuck Cover (full-width, with friction-lock ears + rounded tip) ────────
+148:   // Shape origin = hinge edge (y=0), cover extends toward y=+coverDepth.
+149:   // Friction-lock ears are small rectangular notches at each inner corner.
+150:   const coverShape = new THREE.Shape();
+151:   const hw = L / 2; // half-width
+152:   coverShape.moveTo(-hw, 0);
+153:   coverShape.lineTo(-hw + tIns, 0);
+154:   // Left ear notch (cuts into cover at insert point)
+155:   coverShape.lineTo(-hw + tIns - earW, earH / 2);
+156:   coverShape.lineTo(-hw + tIns,        earH);
+157:   // Left rounded tip corner
+158:   coverShape.lineTo(-hw + tIns,                  coverDepth - tipR);
+159:   coverShape.quadraticCurveTo(-hw + tIns,         coverDepth, -hw + tIns + tipR, coverDepth);
+160:   // Tip top edge
+161:   coverShape.lineTo(hw - tIns - tipR, coverDepth);
+162:   // Right rounded tip corner
+163:   coverShape.quadraticCurveTo(hw - tIns,   coverDepth, hw - tIns, coverDepth - tipR);
+164:   // Right ear notch
+165:   coverShape.lineTo(hw - tIns,        earH);
+166:   coverShape.lineTo(hw - tIns + earW, earH / 2);
+167:   coverShape.lineTo(hw - tIns, 0);
+168:   coverShape.lineTo(hw, 0);
+169:   coverShape.closePath();
+170: 
+171:   // ── Tuck Insert Lip (narrower than cover, inserts into box) ──────────────
+172:   // Shape origin = bottom of lip (at top of tuck cover), extends toward y=+lipDepth.
+173:   const lipW     = L - 2 * tIns;
+174:   const lipDraft = Math.min(0.048, lipW * 0.055); // angled draft sides
+175:   const lipShape = new THREE.Shape();
+176:   lipShape.moveTo(-lipW / 2, 0);
+177:   lipShape.lineTo(-lipW / 2 + lipDraft,        lipDepth - tipR);
+178:   lipShape.quadraticCurveTo(-lipW / 2 + lipDraft, lipDepth, -lipW / 2 + lipDraft + tipR, lipDepth);
+179:   lipShape.lineTo( lipW / 2 - lipDraft - tipR, lipDepth);
+180:   lipShape.quadraticCurveTo( lipW / 2 - lipDraft, lipDepth,  lipW / 2 - lipDraft, lipDepth - tipR);
+181:   lipShape.lineTo( lipW / 2, 0);
+182:   lipShape.closePath();
+183: 
+184:   // ── Dust Flap — Panel 2 side (right-side angled notch, left-side rounded top) ──
+185:   // Hinge = y=0. Flap extends to y=dustH.
+186:   // Shape derived from SVG: left edge straight up, top-left rounded, right slant notch.
+187:   const dustP2Shape = new THREE.Shape();
+188:   dustP2Shape.moveTo(-W / 2, 0);                                     // hinge-left start
+189:   dustP2Shape.lineTo(-W / 2, dustH - dustTopR);                      // straight up left side
+190:   dustP2Shape.quadraticCurveTo(-W / 2, dustH, -W / 2 + dustTopR, dustH); // round top-left corner
+191:   dustP2Shape.lineTo( W / 2 - slant - dustTopR, dustH);              // flat top
+192:   dustP2Shape.quadraticCurveTo( W / 2 - slant, dustH, W / 2 - slant, dustH - dustTopR); // round before slant
+193:   dustP2Shape.lineTo( W / 2 - slant * 0.22, dustH * 0.28);          // angled notch cut
+194:   dustP2Shape.lineTo( W / 2, 0);                                     // hinge-right end
+195:   dustP2Shape.closePath();
+196: 
+197:   // ── Dust Flap — Panel 4 side (left-side angled notch, right-side rounded top) ──
+198:   // Mirror image of dustP2Shape.
+199:   const dustP4Shape = new THREE.Shape();
+200:   dustP4Shape.moveTo(-W / 2, 0);
+201:   dustP4Shape.lineTo(-W / 2 + slant * 0.22, dustH * 0.28);          // angled notch cut on left
+202:   dustP4Shape.lineTo(-W / 2 + slant, dustH - dustTopR);
+203:   dustP4Shape.quadraticCurveTo(-W / 2 + slant, dustH, -W / 2 + slant + dustTopR, dustH);
+204:   dustP4Shape.lineTo( W / 2 - dustTopR, dustH);
+205:   dustP4Shape.quadraticCurveTo( W / 2, dustH, W / 2, dustH - dustTopR);
+206:   dustP4Shape.lineTo( W / 2, 0);                                     // hinge-right straight
+207:   dustP4Shape.closePath();
+208: 
+209:   return {
+210:     p13Geom:    new THREE.ExtrudeGeometry(p13Shape,    extrude),
+211:     p24Geom:    new THREE.ExtrudeGeometry(p24Shape,    extrude),
+212:     glueGeom:   new THREE.ExtrudeGeometry(glueShape,   extrude),
+213:     coverGeom:  new THREE.ExtrudeGeometry(coverShape,  extrude),
+214:     lipGeom:    new THREE.ExtrudeGeometry(lipShape,    extrude),
+215:     dustP2Geom: new THREE.ExtrudeGeometry(dustP2Shape, extrude),
+216:     dustP4Geom: new THREE.ExtrudeGeometry(dustP4Shape, extrude),
+217:     coverDepth, lipDepth,
+218:   };
+219: }
+220: 
+221: // ─────────────────────────────────────────────────────────────────────────────
+222: // MAIN COMPONENT
+223: // ─────────────────────────────────────────────────────────────────────────────
+224: export default function Box3DViewer({
+225:   L,
+226:   W,
+227:   H,
+228:   T,
+229:   progress = 0.85,
+230:   materialPreset = "white-kraft",
+231:   lightingPreset = "studio",
+232: }) {
+233:   const nT = Math.max(0.015, Number(T) || 0.0197);
+234: 
+235:   // ── 5-stage kinematics (each stage spans 0.2 of total progress) ──────────
+236:   // Stage 1 (0.00–0.20): Sleeve tube forms — all 4 panels fold into rectangle
+237:   const tubeAngle = stageProgress(progress, 0.00, 0.20) * (Math.PI / 2);
+238: 
+239:   // Stage 2 (0.20–0.40): Bottom dust flaps fold 90° inward
+240:   const bdAngle = stageProgress(progress, 0.20, 0.40) * (Math.PI / 2);
+241: 
+242:   // Stage 3 (0.40–0.60): Bottom tuck cover folds + lip inserts
+243:   const btAngle    = stageProgress(progress, 0.40, 0.60) * (Math.PI / 2);
+244:   const btLipAngle = stageProgress(progress, 0.40, 0.60) * (105 * Math.PI / 180);
+245: 
+246:   // Stage 4 (0.60–0.80): Top dust flaps fold 90° inward
+247:   const tdAngle = stageProgress(progress, 0.60, 0.80) * (Math.PI / 2);
+248: 
+249:   // Stage 5 (0.80–1.00): Top tuck cover folds + lip inserts to close box
+250:   const ttAngle    = stageProgress(progress, 0.80, 1.00) * (Math.PI / 2);
+251:   const ttLipAngle = stageProgress(progress, 0.80, 1.00) * (105 * Math.PI / 180);
+252: 
+253:   // ── Build geometry (memoized — only rebuilds when dimensions change) ──────
+254:   const geoms = useMemo(
+255:     () => buildBoxGeometries(L, W, H, nT),
+256:     [L, W, H, nT]
+257:   );
+258:   const { p13Geom, p24Geom, glueGeom, coverGeom, lipGeom, dustP2Geom, dustP4Geom, coverDepth } = geoms;
+259: 
+260:   // ── Procedural texture ────────────────────────────────────────────────────
+261:   const texture = useMemo(() => createProceduralTexture(materialPreset), [materialPreset]);
+262: 
+263:   // ── Materials (3 layers: outside surface, inside face, cut edges) ─────────
+264:   const [outsideMat, insideMat, edgeMat, flapMat] = useMemo(() => {
+265:     const roughness = materialPreset === "gold-foil" ? 0.25 : 0.87;
+266:     const metalness = materialPreset === "gold-foil" ? 0.75 : 0.00;
+267:     const bumpScale = materialPreset === "corrugated-kraft" ? 0.020 : 0.007;
+268:     const texProps  = texture
+269:       ? { map: texture, bumpMap: texture, bumpScale }
+270:       : {};
+271: 
+272:     const outside = new THREE.MeshStandardMaterial({
+273:       roughness, metalness, side: THREE.FrontSide, ...texProps,
+274:     });
+275: 
+276:     // Inside of the box — slightly different tone
+277:     let insideHex = "#eeeae3"; // white paperboard inside
+278:     if (materialPreset === "natural-kraft")    insideHex = "#c5aa8a";
+279:     if (materialPreset === "corrugated-kraft") insideHex = "#b89a7a";
+280:     if (materialPreset === "matte-black")      insideHex = "#252525";
+281:     if (materialPreset === "gold-foil")        insideHex = "#f0d890";
+282:     const inside = new THREE.MeshStandardMaterial({
+283:       color: insideHex, roughness: 0.93, metalness: 0.0, side: THREE.BackSide,
+284:     });
+285: 
+286:     // Cut edges of the board
+287:     let edgeHex = "#d8d4cc"; // white board cross-section
+288:     if (materialPreset === "natural-kraft")    edgeHex = "#8c6e50";
+289:     if (materialPreset === "corrugated-kraft") edgeHex = "#7e614a";
+290:     if (materialPreset === "matte-black")      edgeHex = "#303030";
+291:     if (materialPreset === "gold-foil")        edgeHex = "#c08a10";
+292:     const edge = new THREE.MeshStandardMaterial({
+293:       color: edgeHex, roughness: 0.95, metalness: 0.0,
+294:     });
+295: 
+296:     // Flap material — DoubleSide so both faces show when flap is flat
+297:     const flap = new THREE.MeshStandardMaterial({
+298:       roughness, metalness, side: THREE.DoubleSide, ...texProps,
+299:     });
+300: 
+301:     return [outside, inside, edge, flap];
+302:   }, [materialPreset, texture]);
+303: 
+304:   // Panels use [outside, inside, edge] multi-material
+305:   const panelMats = [outsideMat, insideMat, edgeMat];
+306: 
+307:   // ── Lighting presets ──────────────────────────────────────────────────────
+308:   const lighting = useMemo(() => {
+309:     switch (lightingPreset) {
+310:       case "warm":
+311:         return <>
+312:           <ambientLight intensity={0.80} color="#fff6e8" />
+313:           <directionalLight position={[10, 14, 10]} intensity={1.1}  color="#fff0d8" castShadow />
+314:           <directionalLight position={[-5,  6, -4]} intensity={0.25} color="#c8d8ff" />
+315:         </>;
+316:       case "dramatic":
+317:         return <>
+318:           <ambientLight intensity={0.15} />
+319:           <spotLight position={[6, 14, 8]} intensity={2.0} angle={0.28} penumbra={0.9} castShadow />
+320:           <pointLight position={[-4, -6, 4]} intensity={0.3} color="#4488ff" />
+321:         </>;
+322:       default: // studio
+323:         return <>
+324:           <ambientLight intensity={0.82} color="#fff9f2" />
+325:           <directionalLight position={[ 8, 12,  8]} intensity={0.95} castShadow />
+326:           <directionalLight position={[-6,  7, -5]} intensity={0.30} />
+327:           <pointLight position={[0, -10, 6]} intensity={0.18} color="#ffe8d0" />
+328:         </>;
+329:     }
+330:   }, [lightingPreset]);
+331: 
+332:   // ── Camera ────────────────────────────────────────────────────────────────
+333:   const camPos = [L * 1.15, H * 0.55, W * 3.2];
+334: 
+335:   return (
+336:     <div style={{ width: "100%", height: "100%", position: "relative" }}>
+337:       <Canvas
+338:         camera={{ position: camPos, fov: 38 }}
+339:         gl={{ preserveDrawingBuffer: true, antialias: true }}
+340:         shadows
+341:       >
+342:         {lighting}
+343: 
+344:         {/* ═══════════════════════════════════════════════════════════════
+345:             BOX GROUP — all geometry is relative to the box center
+346:             Coordinate system:
+347:               • Panel 1 (FRONT) centered at origin, face toward +Z
+348:               • +X = right,  +Y = up,  +Z = toward viewer
+349:               • Box interior is in the −Z half-space
+350:         ═══════════════════════════════════════════════════════════════ */}
+351:         <group>
+352: 
+353:           {/* ── PANEL 1 (FRONT anchor panel, L × H) ── */}
+354:           <group position={[0, 0, -nT]}>
+355:             <mesh geometry={p13Geom} material={panelMats} />
+356: 
+357:             {/* TOP TUCK COVER — folds inward (−Z) when ttAngle → π/2 */}
+358:             <group position={[0, H / 2, 0]} rotation={[-ttAngle, 0, 0]}>
+359:               <mesh geometry={coverGeom} material={flapMat} />
+360:               {/* Tuck insert lip — folds slightly past 90° to lock inside */}
+361:               <group position={[0, coverDepth, 0]} rotation={[-ttLipAngle, 0, 0]}>
+362:                 <mesh geometry={lipGeom} material={flapMat} />
+363:               </group>
+364:             </group>
+365: 
+366:             {/* BOTTOM TUCK COVER — folds inward (−Z) from below */}
+367:             <group position={[0, -H / 2, 0]} rotation={[btAngle, 0, 0]}>
+368:               {/* Flip 180° on Z so it faces down, matching dieline orientation */}
+369:               <mesh geometry={coverGeom} rotation={[0, 0, Math.PI]} material={flapMat} />
+370:               <group position={[0, -coverDepth, 0]} rotation={[btLipAngle, 0, 0]}>
+371:                 <mesh geometry={lipGeom} rotation={[0, 0, Math.PI]} material={flapMat} />
+372:               </group>
+373:             </group>
+374:           </group>
+375: 
+376:           {/* ── GLUE FLAP (hinges off Panel 1's left edge, tucks behind P4) ── */}
+377:           {/* Rotates slightly with tube formation — visually absorbed into P4 */}
+378:           <group position={[-L / 2, 0, -nT]} rotation={[0, tubeAngle * 0.12, 0]}>
+379:             <mesh geometry={glueGeom} material={flapMat} />
+380:           </group>
+381: 
+382:           {/* ── PANEL 2 (RIGHT SIDE, W × H) ──
+383:               Hinge: Panel 1's right edge (x = +L/2)
+384:               Folds −90° around Y → Panel 2 becomes the right wall */}
+385:           <group position={[L / 2, 0, 0]} rotation={[0, -tubeAngle, 0]}>
+386:             <mesh geometry={p24Geom} material={panelMats} />
+387: 
+388:             {/* P2 TOP DUST FLAP */}
+389:             <group position={[W / 2, H / 2 - nT, 0]} rotation={[-tdAngle, 0, 0]}>
+390:               <mesh geometry={dustP2Geom} material={flapMat} />
+391:             </group>
+392: 
+393:             {/* P2 BOTTOM DUST FLAP (flipped around X so it faces downward) */}
+394:             <group position={[W / 2, -H / 2 + nT, 0]} rotation={[bdAngle, 0, 0]}>
+395:               <mesh geometry={dustP2Geom} rotation={[Math.PI, 0, 0]} material={flapMat} />
+396:             </group>
+397: 
+398:             {/* ── PANEL 3 (BACK, L × H) ──
+399:                 Hinge: Panel 2's far edge (x = W in P2-local space)
+400:                 Folds another −90° → Panel 3 is the back wall */}
+401:             <group position={[W, 0, 0]} rotation={[0, -tubeAngle, 0]}>
+402:               {/* Center p13 shape by shifting L/2 so hinge is at local x=0 */}
+403:               <mesh geometry={p13Geom} position={[L / 2, 0, -nT]} material={panelMats} />
+404: 
+405:               {/* ── PANEL 4 (LEFT SIDE, W × H) ──
+406:                   Hinge: Panel 3's far edge (x = L in P3-local space)
+407:                   Folds another −90° → Panel 4 is the left wall, closing the tube */}
+408:               <group position={[L, 0, 0]} rotation={[0, -tubeAngle, 0]}>
+409:                 <mesh geometry={p24Geom} material={panelMats} />
+410: 
+411:                 {/* P4 TOP DUST FLAP (mirror of P2) */}
+412:                 <group position={[W / 2, H / 2 - nT, 0]} rotation={[-tdAngle, 0, 0]}>
+413:                   <mesh geometry={dustP4Geom} material={flapMat} />
+414:                 </group>
+415: 
+416:                 {/* P4 BOTTOM DUST FLAP */}
+417:                 <group position={[W / 2, -H / 2 + nT, 0]} rotation={[bdAngle, 0, 0]}>
+418:                   <mesh geometry={dustP4Geom} rotation={[Math.PI, 0, 0]} material={flapMat} />
+419:                 </group>
+420:               </group>
+421:             </group>
+422:           </group>
+423: 
+424:         </group>
+425: 
+426:         {/* Orbit controls — pan disabled, distance clamped for clean UX */}
+427:         <OrbitControls
+428:           enablePan={false}
+429:           minDistance={W * 1.5}
+430:           maxDistance={Math.max(L, H) * 5}
+431:           minPolarAngle={Math.PI * 0.1}
+432:           maxPolarAngle={Math.PI * 0.88}
+433:           target={[0, 0, 0]}
+434:         />
+435:       </Canvas>
+436:     </div>
+437:   );
+438: }
+439: 
+The above content shows the entire, complete file contents of the requested file.
+
+
+CONTENT:
+Created At: 2026-07-14T13:19:22Z
+Completed At: 2026-07-14T13:19:24Z
+The following changes were made by the replace_file_content tool to: c:\Users\yashg\boxcraft-pro\src\components\Box3DViewer.jsx. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -107,18 +107,7 @@
+ function buildBoxGeometries(L, W, H, nT) {
+   const extrude = { depth: nT, bevelEnabled: false };
+ 
+-  // --- Derived flap dimensions (standard straight-tuck box, model 100010) ---
+-  const coverDepth = W - nT;                             // tuck cover: exactly bridges inner box depth
+-  const lipDepth   = Math.min(0.58, W * 0.245);          // tuck insert lip ~0.55in
+-  const dustH      = (coverDepth + lipDepth) * 0.52;     // dust flap height (meets in middle)
+-  const tIns       = Math.max(0.068, Math.min(0.115, L * 0.079)); // friction-lock ear inset
+-  const tipR       = Math.min(0.085, L * 0.055);         // tuck cover tip corner radius
+-  const earW       = 0.060;                              // friction-lock notch width
+-  const earH       = 0.052;                              // friction-lock notch height
+-  const slant      = Math.min(0.20, W * 0.135);          // dust flap asymmetric notch slant
+-  const dustTopR   = Math.min(0.095, W * 0.075);         // dust flap top-corner radius
+-  const glueFlapW  = Math.min(0.68, W * 0.285);          // glue flap width
+-  const glueStep   = Math.max(0.115, nT * 1.4);          // glue flap angled step
++  // --- Derived flap dimensions (perfect mathematical proportions based on SVG) ---
+ 
+   // ── Panel 1 & 3 (front/back, L × H) ─────────────────────────────────────
+   // Expanded by nT on left/right to seamlessly cover the thickness of side panels
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+
+CONTENT:
+Created At: 2026-07-14T13:29:50Z
+Completed At: 2026-07-14T13:29:50Z
+File Path: `file:///c:/Users/yashg/boxcraft-pro/src/components/Box3DViewer.jsx`
+Total Lines: 429
+Total Bytes: 20034
+Showing lines 100 to 130
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+100:   return easeInOut(Math.max(0, Math.min(1, (progress - start) / (end - start))));
+101: }
+102: 
+103: // ─────────────────────────────────────────────────────────────────────────────
+104: // GEOMETRY BUILDER
+105: // All dimensions in inches. Returns all ExtrudeGeometry objects for the box.
+106: // ─────────────────────────────────────────────────────────────────────────────
+107: function buildBoxGeometries(L, W, H, nT) {
+108:   const extrude = { depth: nT, bevelEnabled: false };
+109: 
+110:   // --- Derived flap dimensions (perfect mathematical proportions based on SVG) ---
+111: 
+112:   // ── Panel 1 & 3 (front/back, L × H) ─────────────────────────────────────
+113:   // Expanded by nT on left/right to seamlessly cover the thickness of side panels
+114:   const p13Shape = new THREE.Shape();
+115:   p13Shape.moveTo(-L / 2 - nT, -H / 2);
+116:   p13Shape.lineTo( L / 2 + nT, -H / 2);
+117:   p13Shape.lineTo( L / 2 + nT,  H / 2);
+118:   p13Shape.lineTo(-L / 2 - nT,  H / 2);
+119:   p13Shape.closePath();
+120: 
+121:   // ── Panel 2 & 4 (sides, W × (H−2nT)) ──────────────────────────────────────
+122:   const p24Shape = new THREE.Shape();
+123:   p24Shape.moveTo(0,  -H / 2 + nT);
+124:   p24Shape.lineTo(W,  -H / 2 + nT);
+125:   p24Shape.lineTo(W,   H / 2 - nT);
+126:   p24Shape.lineTo(0,   H / 2 - nT);
+127:   p24Shape.closePath();
+128: 
+129:   // ── Glue Flap (angled trapezoid, hinges on Panel 1's left edge) ──────────
+130:   const glueFlapW = W * (16 / 60);
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+
+CONTENT:
+Created At: 2026-07-14T13:45:53Z
+Completed At: 2026-07-14T13:45:53Z
+File Path: `file:///c:/Users/yashg/boxcraft-pro/src/components/Box3DViewer.jsx`
+Total Lines: 430
+Total Bytes: 20149
+Showing lines 200 to 300
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+200:     coverGeom:  new THREE.ExtrudeGeometry(coverShape,  extrude),
+201:     lipGeom:    new THREE.ExtrudeGeometry(lipShape,    extrude),
+202:     dustP2Geom: new THREE.ExtrudeGeometry(dustP2Shape, extrude),
+203:     dustP4Geom: new THREE.ExtrudeGeometry(dustP4Shape, extrude),
+204:     coverDepth, lipDepth,
+205:   };
+206: }
+207: 
+208: // ─────────────────────────────────────────────────────────────────────────────
+209: // MAIN COMPONENT
+210: // ─────────────────────────────────────────────────────────────────────────────
+211: export default function Box3DViewer({
+212:   L,
+213:   W,
+214:   H,
+215:   T,
+216:   progress = 0.85,
+217:   materialPreset = "white-kraft",
+218:   lightingPreset = "studio",
+219: }) {
+220:   const nT = Math.max(0.015, Number(T) || 0.0197);
+221: 
+222:   // ── 5-stage kinematics (each stage spans 0.2 of total progress) ──────────
+223:   // Stage 1 (0.00–0.20): Sleeve tube forms — all 4 panels fold into rectangle
+224:   const tubeAngle = stageProgress(progress, 0.00, 0.20) * (Math.PI / 2);
+225: 
+226:   // Stage 2 (0.20–0.40): Bottom dust flaps fold 90° inward
+227:   const bdAngle = stageProgress(progress, 0.20, 0.40) * (Math.PI / 2);
+228: 
+229:   // Stage 3 (0.40–0.60): Bottom tuck cover folds + lip inserts
+230:   const btAngle    = stageProgress(progress, 0.40, 0.60) * (Math.PI / 2);
+231:   const btLipAngle = stageProgress(progress, 0.40, 0.60) * (105 * Math.PI / 180);
+232: 
+233:   // Stage 4 (0.60–0.80): Top dust flaps fold 90° inward
+234:   const tdAngle = stageProgress(progress, 0.60, 0.80) * (Math.PI / 2);
+235: 
+236:   // Stage 5 (0.80–1.00): Top tuck cover folds + lip inserts to close box
+237:   const ttAngle    = stageProgress(progress, 0.80, 1.00) * (Math.PI / 2);
+238:   const ttLipAngle = stageProgress(progress, 0.80, 1.00) * (105 * Math.PI / 180);
+239: 
+240:   // ── Build geometry (memoized — only rebuilds when dimensions change) ──────
+241:   const geoms = useMemo(
+242:     () => buildBoxGeometries(L, W, H, nT),
+243:     [L, W, H, nT]
+244:   );
+245:   const { p13Geom, p24Geom, glueGeom, coverGeom, lipGeom, dustP2Geom, dustP4Geom, coverDepth } = geoms;
+246: 
+247:   // ── Procedural texture ────────────────────────────────────────────────────
+248:   const texture = useMemo(() => createProceduralTexture(materialPreset), [materialPreset]);
+249: 
+250:   // ── Materials (3 layers: outside surface, inside face, cut edges) ─────────
+251:   const [outsideMat, insideMat, edgeMat, flapMat] = useMemo(() => {
+252:     const roughness = materialPreset === "gold-foil" ? 0.25 : 0.87;
+253:     const metalness = materialPreset === "gold-foil" ? 0.75 : 0.00;
+254:     const bumpScale = materialPreset === "corrugated-kraft" ? 0.020 : 0.007;
+255:     const texProps  = texture
+256:       ? { map: texture, bumpMap: texture, bumpScale }
+257:       : {};
+258: 
+259:     const outside = new THREE.MeshStandardMaterial({
+260:       roughness, metalness, side: THREE.FrontSide, ...texProps,
+261:     });
+262: 
+263:     // Inside of the box — slightly different tone
+264:     let insideHex = "#eeeae3"; // white paperboard inside
+265:     if (materialPreset === "natural-kraft")    insideHex = "#c5aa8a";
+266:     if (materialPreset === "corrugated-kraft") insideHex = "#b89a7a";
+267:     if (materialPreset === "matte-black")      insideHex = "#252525";
+268:     if (materialPreset === "gold-foil")        insideHex = "#f0d890";
+269:     const inside = new THREE.MeshStandardMaterial({
+270:       color: insideHex, roughness: 0.93, metalness: 0.0, side: THREE.BackSide,
+271:     });
+272: 
+273:     // Cut edges of the board
+274:     let edgeHex = "#d8d4cc"; // white board cross-section
+275:     if (materialPreset === "natural-kraft")    edgeHex = "#8c6e50";
+276:     if (materialPreset === "corrugated-kraft") edgeHex = "#7e614a";
+277:     if (materialPreset === "matte-black")      edgeHex = "#303030";
+278:     if (materialPreset === "gold-foil")        edgeHex = "#c08a10";
+279:     const edge = new THREE.MeshStandardMaterial({
+280:       color: edgeHex, roughness: 0.95, metalness: 0.0,
+281:     });
+282: 
+283:     // Flap material — DoubleSide so both faces show when flap is flat
+284:     const flap = new THREE.MeshStandardMaterial({
+285:       roughness, metalness, side: THREE.DoubleSide, ...texProps,
+286:     });
+287: 
+288:     return [outside, inside, edge, flap];
+289:   }, [materialPreset, texture]);
+290: 
+291:   // Panels use [outside, inside, edge] multi-material
+292:   const panelMats = [outsideMat, insideMat, edgeMat];
+293: 
+294:   // ── Lighting presets ──────────────────────────────────────────────────────
+295:   const lighting = useMemo(() => {
+296:     switch (lightingPreset) {
+297:       case "warm":
+298:         return <>
+299:           <ambientLight intensity={0.80} color="#fff6e8" />
+300:           <directionalLight position={[10, 14, 10]} intensity={1.1}  color="#fff0d8" castShadow />
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+
+CONTENT:
+Created At: 2026-07-14T14:42:12Z
+Completed At: 2026-07-14T14:42:12Z
+File Path: `file:///c:/Users/yashg/boxcraft-pro/src/components/Box3DViewer.jsx`
+Total Lines: 430
+Total Bytes: 20196
+Showing lines 240 to 300
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+240:   const ttLipAngle = stageProgress(progress, 0.80, 1.00) * (105 * Math.PI / 180);
+241: 
+242:   // ── Build geometry (memoized — only rebuilds when dimensions change) ──────
+243:   const geoms = useMemo(
+244:     () => buildBoxGeometries(L, W, H, nT),
+245:     [L, W, H, nT]
+246:   );
+247:   const { p13Geom, p24Geom, glueGeom, coverGeom, lipGeom, dustP2Geom, dustP4Geom, coverDepth } = geoms;
+248: 
+249:   // ── Procedural texture ────────────────────────────────────────────────────
+250:   const texture = useMemo(() => createProceduralTexture(materialPreset), [materialPreset]);
+251: 
+252:   // ── Materials (3 layers: outside surface, inside face, cut edges) ─────────
+253:   const [outsideMat, insideMat, edgeMat, flapMat] = useMemo(() => {
+254:     const roughness = materialPreset === "gold-foil" ? 0.25 : 0.87;
+255:     const metalness = materialPreset === "gold-foil" ? 0.75 : 0.00;
+256:     const bumpScale = materialPreset === "corrugated-kraft" ? 0.020 : 0.007;
+257:     const texProps  = texture
+258:       ? { map: texture, bumpMap: texture, bumpScale }
+259:       : {};
+260: 
+261:     const outside = new THREE.MeshStandardMaterial({
+262:       roughness, metalness, side: THREE.FrontSide, ...texProps,
+263:     });
+264: 
+265:     // Inside of the box — slightly different tone
+266:     let insideHex = "#eeeae3"; // white paperboard inside
+267:     if (materialPreset === "natural-kraft")    insideHex = "#c5aa8a";
+268:     if (materialPreset === "corrugated-kraft") insideHex = "#b89a7a";
+269:     if (materialPreset === "matte-black")      insideHex = "#252525";
+270:     if (materialPreset === "gold-foil")        insideHex = "#f0d890";
+271:     const inside = new THREE.MeshStandardMaterial({
+272:       color: insideHex, roughness: 0.93, metalness: 0.0, side: THREE.BackSide,
+273:     });
+274: 
+275:     // Cut edges of the board
+276:     let edgeHex = "#d8d4cc"; // white board cross-section
+277:     if (materialPreset === "natural-kraft")    edgeHex = "#8c6e50";
+278:     if (materialPreset === "corrugated-kraft") edgeHex = "#7e614a";
+279:     if (materialPreset === "matte-black")      edgeHex = "#303030";
+280:     if (materialPreset === "gold-foil")        edgeHex = "#c08a10";
+281:     const edge = new THREE.MeshStandardMaterial({
+282:       color: edgeHex, roughness: 0.95, metalness: 0.0,
+283:     });
+284: 
+285:     // Flap material — DoubleSide so both faces show when flap is flat
+286:     const flap = new THREE.MeshStandardMaterial({
+287:       roughness, metalness, side: THREE.DoubleSide, ...texProps,
+288:     });
+289: 
+290:     return [outside, inside, edge, flap];
+291:   }, [materialPreset, texture]);
+292: 
+293:   // Panels use [outside, inside, edge] multi-material
+294:   const panelMats = [outsideMat, insideMat, edgeMat];
+295: 
+296:   // ── Lighting presets ──────────────────────────────────────────────────────
+297:   const lighting = useMemo(() => {
+298:     switch (lightingPreset) {
+299:       case "warm":
+300:         return <>
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+
+CONTENT:
+Created At: 2026-07-14T14:57:25Z
+Completed At: 2026-07-14T14:57:26Z
+File Path: `file:///c:/Users/yashg/boxcraft-pro/src/components/Box3DViewer.jsx`
+Total Lines: 407
+Total Bytes: 19199
+Showing lines 60 to 100
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+60:   ctx.fillStyle = "rgba(50,30,10,0.015)";
+61:   for (let i = 0; i < 8000; i++) {
+62:     const x = Math.random() * 1024;
+63:     const y = Math.random() * 1024;
+64:     ctx.fillRect(x, y, 5 + Math.random() * 15, 1);
+65:   }
+66: 
+67:   const tex = new THREE.CanvasTexture(canvas);
+68:   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+69:   tex.anisotropy = 16;
+70:   return tex;
+71: }
+72: 
+73: // ─────────────────────────────────────────────────────────────────────────────
+74: // SMOOTH EASE-IN-OUT (cubic)
+75: // ─────────────────────────────────────────────────────────────────────────────
+76: const easeInOut = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+77: 
+78: function stageProgress(progress, start, end) {
+79:   return easeInOut(Math.max(0, Math.min(1, (progress - start) / (end - start))));
+80: }
+81: 
+82: // ─────────────────────────────────────────────────────────────────────────────
+83: // GEOMETRY BUILDER
+84: // All dimensions in inches. Returns all ExtrudeGeometry objects for the box.
+85: // ─────────────────────────────────────────────────────────────────────────────
+86: function buildBoxGeometries(L, W, H, nT) {
+87:   const extrude = { depth: nT, bevelEnabled: false };
+88: 
+89:   // --- Derived flap dimensions (perfect mathematical proportions based on SVG) ---
+90:   const coverDepth = W - nT; // Top cover exactly spans inner box depth so lip folds inside
+91:   const lipDepth   = W * (14.25 / 60);
+92:   // ── Panel 1 & 3 (front/back, L × H) ─────────────────────────────────────
+93:   // Expanded by nT on left/right to seamlessly cover the thickness of side panels
+94:   const p13Shape = new THREE.Shape();
+95:   p13Shape.moveTo(-L / 2 - nT, -H / 2);
+96:   p13Shape.lineTo( L / 2 + nT, -H / 2);
+97:   p13Shape.lineTo( L / 2 + nT,  H / 2);
+98:   p13Shape.lineTo(-L / 2 - nT,  H / 2);
+99:   p13Shape.closePath();
+100: 
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+
+CONTENT:
+Created At: 2026-07-14T15:06:21Z
+Completed At: 2026-07-14T15:06:21Z
+File Path: `file:///c:/Users/yashg/boxcraft-pro/src/components/Box3DViewer.jsx`
+Total Lines: 409
+Total Bytes: 19425
+Showing lines 11 to 100
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+11: function createProceduralTexture(materialPreset) {
+12:   if (typeof window === "undefined") return null;
+13:   const canvas = document.createElement("canvas");
+14:   canvas.width = 1024;
+15:   canvas.height = 1024;
+16:   const ctx = canvas.getContext("2d");
+17: 
+18:   let baseColor;
+19: 
+20:   switch (materialPreset) {
+21:     case "natural-kraft":
+22:       baseColor = "#cba675"; 
+23:       break;
+24:     case "corrugated-kraft":
+25:       // Pacdora exact match: a warm, bright golden kraft color
+26:       baseColor = "#c59e70"; 
+27:       break;
+28:     case "matte-black":
+29:       baseColor = "#222222";
+30:       break;
+31:     case "gold-foil":
+32:       baseColor = "#d6a94a";
+33:       break;
+34:     default: // white-kraft
+35:       baseColor = "#f0efe9";
+36:   }
+37: 
+38:   // 1. Base paper fill
+39:   ctx.fillStyle = baseColor;
+40:   ctx.fillRect(0, 0, 1024, 1024);
+41: 
+42:   // 2. Extremely fine, realistic kraft paper noise (fibers and microscopic flecks)
+43:   // Dark fibers
+44:   ctx.fillStyle = "rgba(40,25,10,0.035)";
+45:   for (let i = 0; i < 40000; i++) {
+46:     const x = Math.random() * 1024;
+47:     const y = Math.random() * 1024;
+48:     const size = Math.random() < 0.9 ? 1 : 2;
+49:     ctx.fillRect(x, y, size, size);
+50:   }
+51:   // Light fibers (subtle highlight texture)
+52:   ctx.fillStyle = "rgba(255,255,255,0.04)";
+53:   for (let i = 0; i < 30000; i++) {
+54:     const x = Math.random() * 1024;
+55:     const y = Math.random() * 1024;
+56:     ctx.fillRect(x, y, 1, 1);
+57:   }
+58: 
+59:   // 3. Very subtle horizontal grain (paper manufacturing direction)
+60:   ctx.fillStyle = "rgba(50,30,10,0.015)";
+61:   for (let i = 0; i < 8000; i++) {
+62:     const x = Math.random() * 1024;
+63:     const y = Math.random() * 1024;
+64:     ctx.fillRect(x, y, 5 + Math.random() * 15, 1);
+65:   }
+66: 
+67:   const tex = new THREE.CanvasTexture(canvas);
+68:   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+69:   tex.anisotropy = 16;
+70:   tex.colorSpace = THREE.SRGBColorSpace; // CRITICAL: Prevents colors from looking washed out/dull in modern Three.js
+71:   return tex;
+72: }
+73: 
+74: // ─────────────────────────────────────────────────────────────────────────────
+75: // SMOOTH EASE-IN-OUT (cubic)
+76: // ─────────────────────────────────────────────────────────────────────────────
+77: const easeInOut = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+78: 
+79: function stageProgress(progress, start, end) {
+80:   return easeInOut(Math.max(0, Math.min(1, (progress - start) / (end - start))));
+81: }
+82: 
+83: // ─────────────────────────────────────────────────────────────────────────────
+84: // GEOMETRY BUILDER
+85: // All dimensions in inches. Returns all ExtrudeGeometry objects for the box.
+86: // ─────────────────────────────────────────────────────────────────────────────
+87: function buildBoxGeometries(L, W, H, nT) {
+88:   const extrude = { depth: nT, bevelEnabled: false };
+89: 
+90:   // --- Derived flap dimensions (perfect mathematical proportions based on SVG) ---
+91:   const coverDepth = W - 2 * nT; // Exactly spans inner box depth (W minus front/back panel thickness)
+92:   const lipDepth   = W * (14.25 / 60);
+93:   // ── Panel 1 & 3 (front/back, L × H) ─────────────────────────────────────
+94:   // Expanded by nT on left/right to seamlessly cover the thickness of side panels
+95:   const p13Shape = new THREE.Shape();
+96:   p13Shape.moveTo(-L / 2 - nT, -H / 2);
+97:   p13Shape.lineTo( L / 2 + nT, -H / 2);
+98:   p13Shape.lineTo( L / 2 + nT,  H / 2);
+99:   p13Shape.lineTo(-L / 2 - nT,  H / 2);
+100:   p13Shape.closePath();
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+
+CONTENT:
+Created At: 2026-07-14T15:43:42Z
+Completed At: 2026-07-14T15:43:42Z
+File Path: `file:///c:/Users/yashg/boxcraft-pro/src/components/Box3DViewer.jsx`
+Total Lines: 426
+Total Bytes: 20231
+Showing lines 60 to 110
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+60:     // 3. Subtle bright paper fibers
+61:     if (Math.random() < 0.025) {
+62:         intensity += 20 + Math.random() * 25;
+63:     }
+64:     
+65:     data[i]     = Math.min(255, Math.max(0, r + intensity));     // R
+66:     data[i+1] = Math.min(255, Math.max(0, g + intensity));       // G
+67:     data[i+2] = Math.min(255, Math.max(0, b + intensity));       // B
+68:     data[i+3] = 255;                                             // Alpha
+69:   }
+70:   noiseCtx.putImageData(imgData, 0, 0);
+71: 
+72:   // Draw the noise to the main texture canvas
+73:   ctx.drawImage(noiseCanvas, 0, 0, 1024, 1024);
+74: 
+75:   // Add subtle vertical corrugated fluting lines for corrugated board
+76:   if (materialPreset === "corrugated-kraft") {
+77:     for (let x = 0; x < 1024; x += 14) {
+78:       ctx.fillStyle = "rgba(0, 0, 0, 0.025)"; // Flute shadow
+79:       ctx.fillRect(x, 0, 6, 1024);
+80:       ctx.fillStyle = "rgba(255, 255, 255, 0.025)"; // Flute highlight
+81:       ctx.fillRect(x + 6, 0, 6, 1024);
+82:     }
+83:   }
+84: 
+85:   const tex = new THREE.CanvasTexture(canvas);
+86:   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+87:   tex.anisotropy = 16;
+88:   tex.colorSpace = THREE.SRGBColorSpace; // CRITICAL for accurate color rendering
+89:   
+90:   return tex;
+91: }
+92: 
+93: // ─────────────────────────────────────────────────────────────────────────────
+94: // SMOOTH EASE-IN-OUT (cubic)
+95: // ─────────────────────────────────────────────────────────────────────────────
+96: const easeInOut = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+97: 
+98: function stageProgress(progress, start, end) {
+99:   return easeInOut(Math.max(0, Math.min(1, (progress - start) / (end - start))));
+100: }
+101: 
+102: // ─────────────────────────────────────────────────────────────────────────────
+103: // GEOMETRY BUILDER
+104: // All dimensions in inches. Returns all ExtrudeGeometry objects for the box.
+105: // ─────────────────────────────────────────────────────────────────────────────
+106: function buildBoxGeometries(L, W, H, nT) {
+107:   const extrude = { depth: nT, bevelEnabled: false };
+108: 
+109:   // --- Derived flap dimensions (perfect mathematical proportions based on SVG) ---
+110:   const coverDepth = W - 2 * nT; // Exactly spans inner box depth (W minus front/back panel thickness)
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+
+CONTENT:
+Created At: 2026-07-14T15:43:50Z
+Completed At: 2026-07-14T15:43:50Z
+File Path: `file:///c:/Users/yashg/boxcraft-pro/src/components/Box3DViewer.jsx`
+Total Lines: 426
+Total Bytes: 20231
+Showing lines 240 to 285
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+240:   const geoms = useMemo(
+241:     () => buildBoxGeometries(L, W, H, nT),
+242:     [L, W, H, nT]
+243:   );
+244:   const { p13Geom, p24Geom, glueGeom, coverGeom, lipGeom, dustP2Geom, dustP4Geom, coverDepth } = geoms;
+245: 
+246:   // ── Procedural texture ────────────────────────────────────────────────────
+247:   const texture = useMemo(() => createProceduralTexture(materialPreset), [materialPreset]);
+248: 
+249:   // ── Materials (3 layers: outside surface, inside face, cut edges) ─────────
+250:   const [outsideMat, insideMat, edgeMat, flapMat] = useMemo(() => {
+251:     const roughness = materialPreset === "gold-foil" ? 0.25 : 0.95; // Rougher for more matte look
+252:     const metalness = materialPreset === "gold-foil" ? 0.75 : 0.00;
+253:     const bumpScale = materialPreset === "corrugated-kraft" ? 0.004 : 0.003; // Very subtle micro-bump for paper texture
+254:     const texProps  = texture
+255:       ? { map: texture, bumpMap: texture, bumpScale }
+256:       : {};
+257: 
+258:     const outside = new THREE.MeshStandardMaterial({
+259:       roughness, metalness, side: THREE.FrontSide, ...texProps,
+260:     });
+261: 
+262:     // Inside of the box — slightly different tone
+263:     let insideHex = "#eeeae3"; // white paperboard inside
+264:     if (materialPreset === "natural-kraft")    insideHex = "#cdae7d";
+265:     if (materialPreset === "corrugated-kraft") insideHex = "#c09765";
+266:     if (materialPreset === "matte-black")      insideHex = "#252525";
+267:     if (materialPreset === "gold-foil")        insideHex = "#f0d890";
+268:     const inside = new THREE.MeshStandardMaterial({
+269:       color: insideHex, roughness: 0.96, metalness: 0.0, side: THREE.BackSide,
+270:     });
+271: 
+272:     // Cut edges of the board
+273:     let edgeHex = "#d8d4cc"; // white board cross-section
+274:     if (materialPreset === "natural-kraft")    edgeHex = "#a28258";
+275:     if (materialPreset === "corrugated-kraft") edgeHex = "#957248";
+276:     if (materialPreset === "matte-black")      edgeHex = "#303030";
+277:     if (materialPreset === "gold-foil")        edgeHex = "#c08a10";
+278:     const edge = new THREE.MeshStandardMaterial({
+279:       color: edgeHex, roughness: 0.95, metalness: 0.0,
+280:     });
+281: 
+282:     // Flap material — DoubleSide so both faces show when flap is flat
+283:     const flap = new THREE.MeshStandardMaterial({
+284:       roughness, metalness, side: THREE.DoubleSide, ...texProps,
+285:     });
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+
+CONTENT:
+Created At: 2026-07-15T06:21:22Z
+Completed At: 2026-07-15T06:21:22Z
+File Path: `file:///c:/Users/yashg/boxcraft-pro/src/components/Box3DViewer.jsx`
+Total Lines: 432
+Total Bytes: 20802
+Showing lines 190 to 250
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+190:   dustP4Shape.lineTo(-cStartX, dH);
+191:   dustP4Shape.quadraticCurveTo(-cEndX, dH, -cEndX, cEndY);
+192:   dustP4Shape.lineTo(-cEndX - dW * (5.085 / 60), cEndY - dW * (22.025 / 60));
+193:   dustP4Shape.lineTo(-cEndX - dW * (8.085 / 60), cEndY - dW * (25.025 / 60));
+194:   dustP4Shape.lineTo(-dW / 2 + dW * (0.3 / 60), 0);
+195:   dustP4Shape.closePath();
+196: 
+197:   return {
+198:     p13Geom:    new THREE.ExtrudeGeometry(p13Shape,    extrude),
+199:     p24Geom:    new THREE.ExtrudeGeometry(p24Shape,    extrude),
+200:     glueGeom:   new THREE.ExtrudeGeometry(glueShape,   extrude),
+201:     coverGeom:  new THREE.ExtrudeGeometry(coverShape,  extrude),
+202:     lipGeom:    new THREE.ExtrudeGeometry(lipShape,    extrude),
+203:     dustP2Geom: new THREE.ExtrudeGeometry(dustP2Shape, extrude),
+204:     dustP4Geom: new THREE.ExtrudeGeometry(dustP4Shape, extrude),
+205:     coverDepth, lipDepth,
+206:   };
+207: }
+208: 
+209: // ─────────────────────────────────────────────────────────────────────────────
+210: // MAIN COMPONENT
+211: // ─────────────────────────────────────────────────────────────────────────────
+212: export default function Box3DViewer({
+213:   L,
+214:   W,
+215:   H,
+216:   T,
+217:   progress = 0.85,
+218:   materialPreset = "corrugated-kraft",
+219:   lightingPreset = "studio",
+220: }) {
+221:   const nT = Math.max(0.015, Number(T) || 0.0197);
+222: 
+223:   // ── 5-stage kinematics (each stage spans 0.2 of total progress) ──────────
+224:   // Stage 1 (0.00–0.20): Sleeve tube forms — all 4 panels fold into rectangle
+225:   const tubeAngle = stageProgress(progress, 0.00, 0.20) * (Math.PI / 2);
+226: 
+227:   // Stage 2 (0.20–0.40): Bottom dust flaps fold 90° inward
+228:   const bdAngle = stageProgress(progress, 0.20, 0.40) * (Math.PI / 2);
+229: 
+230:   // Stage 3 (0.40–0.60): Bottom tuck cover folds + lip inserts
+231:   const btAngle    = stageProgress(progress, 0.40, 0.60) * (Math.PI / 2);
+232:   const btLipAngle = stageProgress(progress, 0.40, 0.60) * (105 * Math.PI / 180);
+233: 
+234:   // Stage 4 (0.60–0.80): Top dust flaps fold 90° inward
+235:   const tdAngle = stageProgress(progress, 0.60, 0.80) * (Math.PI / 2);
+236: 
+237:   // Stage 5 (0.80–1.00): Top tuck cover folds + lip inserts to close box
+238:   const ttAngle    = stageProgress(progress, 0.80, 1.00) * (Math.PI / 2);
+239:   const ttLipAngle = stageProgress(progress, 0.80, 1.00) * (105 * Math.PI / 180);
+240: 
+241:   // ── Build geometry (memoized — only rebuilds when dimensions change) ──────
+242:   const geoms = useMemo(
+243:     () => buildBoxGeometries(L, W, H, nT),
+244:     [L, W, H, nT]
+245:   );
+246:   const { p13Geom, p24Geom, glueGeom, coverGeom, lipGeom, dustP2Geom, dustP4Geom, coverDepth } = geoms;
+247: 
+248:   // ── Procedural texture ────────────────────────────────────────────────────
+249:   const texture = useMemo(() => createProceduralTexture(materialPreset), [materialPreset]);
+250: 
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+
+CONTENT:
+Created At: 2026-07-15T06:21:52Z
+Completed At: 2026-07-15T06:22:08Z
+The following changes were made by the multi_replace_file_content tool to: c:\Users\yashg\boxcraft-pro\src\components\Box3DViewer.jsx. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -1,4 +1,4 @@
+-import React, { useMemo } from "react";
++import React, { useMemo, useRef, useState, useEffect } from "react";
+ import { Canvas } from "@react-three/fiber";
+ import { OrbitControls, Environment } from "@react-three/drei";
+ import * as THREE from "three";
+@@ -5,7 +5,82 @@
++// ── Decal Components ────────────────────────────────────────────────────────
++const DecalItem = ({ url, x, y, width, height }) => {
++  const [texture, setTexture] = useState(null);
++  useEffect(() => {
++    new THREE.TextureLoader().load(url, (tex) => {
++      tex.colorSpace = THREE.SRGBColorSpace;
++      setTexture(tex);
++    });
++  }, [url]);
++
++  if (!texture) return null;
++
++  return (
++    <mesh position={[x, y, 0.02]} raycast={() => null}>
++      <planeGeometry args={[width, height]} />
++      <meshStandardMaterial 
++        map={texture} 
++        transparent={true} 
++        polygonOffset={true} 
++        polygonOffsetFactor={-1} 
++        depthWrite={false} 
++        roughness={0.7}
++      />
++    </mesh>
++  );
++};
++
++const MappedDecals = ({ panel, decals, L, W, H, nGlue = 0.625, lipD = 0.625 }) => {
++  if (!decals || decals.length === 0) return null;
++
++  const yTop = W + lipD;
++  const centerY = yTop + H / 2;
++
++  return decals.map(decal => {
++    let localX, localY;
++    const decalY = -(decal.y - centerY); 
++
++    if (panel === "p1") {
++      const pLeft = nGlue;
++      const pRight = nGlue + L;
++      if (decal.x >= pLeft && decal.x <= pRight) {
++        localX = decal.x - (nGlue + L / 2);
++        localY = decalY;
++        return <DecalItem key={decal.id} url={decal.url} x={localX} y={localY} width={decal.width} height={decal.height} />;
++      }
++    }
++    else if (panel === "p2") {
++      const pLeft = nGlue + L;
++      const pRight = nGlue + L + W;
++      if (decal.x > pLeft && decal.x <= pRight) {
++        localX = decal.x - (pLeft + W / 2);
++        localY = decalY;
++        return <DecalItem key={decal.id} url={decal.url} x={localX} y={localY} width={decal.width} height={decal.height} />;
++      }
++    }
++    else if (panel === "p3") {
++      const pLeft = nGlue + L + W;
++      const pRight = nGlue + L * 2 + W;
++      if (decal.x > pLeft && decal.x <= pRight) {
++        localX = decal.x - (pLeft + L / 2);
++        localY = decalY;
++        return <DecalItem key={decal.id} url={decal.url} x={localX} y={localY} width={decal.width} height={decal.height} />;
++      }
++    }
++    else if (panel === "p4") {
++      const pLeft = nGlue + L * 2 + W;
++      const pRight = nGlue + L * 2 + W * 2;
++      if (decal.x > pLeft && decal.x <= pRight) {
++        localX = decal.x - (pLeft + W / 2);
++        localY = decalY;
++        return <DecalItem key={decal.id} url={decal.url} x={localX} y={localY} width={decal.width} height={decal.height} />;
++      }
++    }
++    return null;
++  });
++};
++
+ // ─────────────────────────────────────────────────────────────────────────────
+ // PROCEDURAL TEXTURE GENERATOR
+-// Creates a canvas-based material texture for each preset.
+-// Includes organic fiber grain and diagonal "Dacdora" watermarks.
+ // ─────────────────────────────────────────────────────────────────────────────
+ function createProceduralTexture(materialPreset) {
+   if (typeof window === "undefined") return null;
+@@ -14,30 +14,15 @@
+   canvas.height = 1024;
+   const ctx = canvas.getContext("2d");
+ 
+-  // Exact RGB extraction from the reference image
+   let r, g, b;
+-
+   switch (materialPreset) {
+-    case "natural-kraft":
+-      r = 203; g = 171; b = 125; // #CBAB7D
+-      break;
+-    case "corrugated-kraft":
+-      // Pre-brightened golden-sandy kraft to perfectly counteract tone-mapping darkening
+-      r = 230; g = 192; b = 145; 
+-      break;
+-    case "matte-black":
+-      r = 34; g = 34; b = 34;
+-      break;
+-    case "gold-foil":
+-      r = 214; g = 169; b = 74;
+-      break;
+-    default: // white-kraft
+-      r = 240; g = 239; b = 233;
+-  }
+-
+-  // We generate noise at a very small size (128x128) and scale it up to 1024x1024.
+-  // This creates large, chunky "fibers" and recycled specks that are clearly visible
+-  // even from a distance, mimicking real cardboard rather than microscopic dust.
++    case "natural-kraft": r = 203; g = 171; b = 125; break;
++    case "corrugated-kraft": r = 230; g = 192; b = 145; break;
++    case "matte-black": r = 34; g = 34; b = 34; break;
++    case "gold-foil": r = 214; g = 169; b = 74; break;
++    default: r = 240; g = 239; b = 233;
++  }
++
+   const noiseSize = 128;
+   const noiseCanvas = document.createElement("canvas");
+   noiseCanvas.width = noiseSize;
+@@ -47,36 +47,23 @@
+ 
+   for (let i = 0; i < data.length; i += 4) {
+     const noiseVal = Math.random(); 
+-    // 1. Continuous subtle base grain (+/- 18 variance for stronger texture)
+     let intensity = (noiseVal - 0.5) * 36; 
+-    
+-    // 2. Dense, dark recycled paper flecks
+-    if (Math.random() < 0.055) {
+-        intensity -= 30 + Math.random() * 40;
+-    }
+-    // 3. Subtle bright paper fibers
+-    if (Math.random() < 0.03) {
+-        intensity += 25 + Math.random() * 35;
+-    }
+-    
+-    data[i]     = Math.min(255, Math.max(0, r + intensity));     // R
+-    data[i+1] = Math.min(255, Math.max(0, g + intensity));       // G
+-    data[i+2] = Math.min(255, Math.max(0, b + intensity));       // B
+-    data[i+3] = 255;                                             // Alpha
++    if (Math.random() < 0.055) intensity -= 30 + Math.random() * 40;
++    if (Math.random() < 0.03) intensity += 25 + Math.random() * 35;
++    data[i] = Math.min(255, Math.max(0, r + intensity));
++    data[i+1] = Math.min(255, Math.max(0, g + intensity));
++    data[i+2] = Math.min(255, Math.max(0, b + intensity));
++    data[i+3] = 255;
+   }
+   noiseCtx.putImageData(imgData, 0, 0);
+-
+-  // Disable image smoothing so the 128x128 noise scales up as crisp, chunky pixels
+-  // instead of becoming a blurry, featureless gradient!
+   ctx.imageSmoothingEnabled = false;
+   ctx.drawImage(noiseCanvas, 0, 0, 1024, 1024);
+ 
+-  // Add subtle vertical corrugated fluting lines for corrugated board
+   if (materialPreset === "corrugated-kraft") {
+     for (let x = 0; x < 1024; x += 32) {
+-      ctx.fillStyle = "rgba(0, 0, 0, 0.08)"; // Flute shadow (increased visibility)
++      ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
+       ctx.fillRect(x, 0, 16, 1024);
+-      ctx.fillStyle = "rgba(255, 255, 255, 0.06)"; // Flute highlight (increased visibility)
++      ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
+       ctx.fillRect(x + 16, 0, 16, 1024);
+     }
+   }
+@@ -83,16 +83,11 @@
+   const tex = new THREE.CanvasTexture(canvas);
+   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+   tex.anisotropy = 16;
+-  tex.colorSpace = THREE.SRGBColorSpace; // CRITICAL for accurate color rendering
+-  
++  tex.colorSpace = THREE.SRGBColorSpace;
+   return tex;
+ }
+ 
+-// ─────────────────────────────────────────────────────────────────────────────
+-// SMOOTH EASE-IN-OUT (cubic)
+-// ─────────────────────────────────────────────────────────────────────────────
+ const easeInOut = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+-
+ function stageProgress(progress, start, end) {
+   return easeInOut(Math.max(0, Math.min(1, (progress - start) / (end - start))));
+ }
+@@ -99,31 +99,21 @@
+-// ─────────────────────────────────────────────────────────────────────────────
+-// GEOMETRY BUILDER
+-// All dimensions in inches. Returns all ExtrudeGeometry objects for the box.
+-// ─────────────────────────────────────────────────────────────────────────────
+ function buildBoxGeometries(L, W, H, nT) {
+   const extrude = { depth: nT, bevelEnabled: false };
+-
+-  // --- Derived flap dimensions (perfect mathematical proportions based on SVG) ---
+-  const coverDepth = W - 2 * nT; // Exactly spans inner box depth (W minus front/back panel thickness)
+-  const lipDepth   = W * (14.25 / 60);
+-  // ── Panel 1 & 3 (front/back, L × H) ─────────────────────────────────────
+-  // Expanded by nT on left/right to seamlessly cover the thickness of side panels
++  const coverDepth = W - 2 * nT;
++  const lipDepth = W * (14.25 / 60);
+   const p13Shape = new THREE.Shape();
+-  p13Shape.moveTo(-L / 2 - nT, -H / 2);
+-  p13Shape.lineTo( L / 2 + nT, -H / 2);
+-  p13Shape.lineTo( L / 2 + nT,  H / 2);
+-  p13Shape.lineTo(-L / 2 - nT,  H / 2);
++  p13Shape.moveTo(-L / 2, -H / 2);
++  p13Shape.lineTo( L / 2, -H / 2);
++  p13Shape.lineTo( L / 2,  H / 2);
++  p13Shape.lineTo(-L / 2,  H / 2);
+   p13Shape.closePath();
+ 
+-  // ── Panel 2 & 4 (sides, W × (H−2nT)) ──────────────────────────────────────
+   const p24Shape = new THREE.Shape();
+-  p24Shape.moveTo(0,  -H / 2 + nT);
+-  p24Shape.lineTo(W,  -H / 2 + nT);
+-  p24Shape.lineTo(W,   H / 2 - nT);
+-  p24Shape.lineTo(0,   H / 2 - nT);
++  p24Shape.moveTo(-W / 2, -H / 2 + nT);
++  p24Shape.lineTo( W / 2, -H / 2 + nT);
++  p24Shape.lineTo( W / 2,  H / 2 - nT);
++  p24Shape.lineTo(-W / 2,  H / 2 - nT);
+   p24Shape.closePath();
+ 
+-  // ── Glue Flap (angled trapezoid, hinges on Panel 1's left edge) ──────────
+   const glueFlapW = W * (16 / 60);
+   const glueStep = H * (4.287 / 160);
+   const glueShape = new THREE.Shape();
+@@ -132,20 +132,16 @@
+   glueShape.lineTo(0,          -H / 2);
+   glueShape.closePath();
+ 
+-  // ── Tuck Cover (perfectly straight rectangle) ────────
+   const coverShape = new THREE.Shape();
+-  const hw = L / 2;
+-  coverShape.moveTo(-hw, 0);
+-  coverShape.lineTo(-hw, coverDepth);
+-  coverShape.lineTo(hw, coverDepth);
+-  coverShape.lineTo(hw, 0);
++  coverShape.moveTo(-L / 2, 0);
++  coverShape.lineTo(-L / 2, coverDepth);
++  coverShape.lineTo( L / 2, coverDepth);
++  coverShape.lineTo( L / 2, 0);
+   coverShape.closePath();
+ 
+-  // ── Tuck Insert Lip (rounded corners, inset slightly from cover) ──────────────
+-  const lipW = L - 2 * (L * (0.5 / 120)); // 0.5mm inset on each side
++  const lipW = L - 2 * (L * (0.5 / 120));
+   const lipStraightH = W * (6.25 / 60);
+   const tipR = W * (8.0 / 60);
+-  
+   const lipShape = new THREE.Shape();
+   lipShape.moveTo(-lipW / 2, 0);
+   lipShape.lineTo(-lipW / 2, lipStraightH);
+@@ -154,22 +154,17 @@
+   lipShape.lineTo(lipW / 2, 0);
+   lipShape.closePath();
+ 
+-  // ── Dust Flap — Panel 2 side (SVG precise profile) ──
+   const dustP2Shape = new THREE.Shape();
+   const dW = W;
+   const dH = dW * (38 / 60);
+-  
+   dustP2Shape.moveTo(-dW / 2 + dW * (1.065 / 60), 0);
+   dustP2Shape.lineTo(-dW / 2 + dW * (3.5 / 60), dW * (3.5 / 60)); 
+   dustP2Shape.lineTo(-dW / 2 + dW * (4.5 / 60), dH);
+-  
+   const cStartX = dW / 2 - dW * (17.154 / 60); 
+   dustP2Shape.lineTo(cStartX, dH);
+-  
+   const cEndX = cStartX + dW * (8.769 / 60);
+   const cEndY = dH - dW * (6.975 / 60);
+   dustP2Shape.quadraticCurveTo(cEndX, dH, cEndX, cEndY);
+-  
+   dustP2Shape.lineTo(cEndX + dW * (5.085 / 60), cEndY - dW * (22.025 / 60));
+   dustP2Shape.lineTo(cEndX + dW * (8.085 / 60), cEndY - dW * (25.025 / 60));
+   dustP2Shape.lineTo(dW / 2 - dW * (0.3 / 60), 0);
+@@ -176,5 +176,4 @@
+ 
+-  // ── Dust Flap — Panel 4 side (perfect mirror of Panel 2) ──
+   const dustP4Shape = new THREE.Shape();
+   dustP4Shape.moveTo(dW / 2 - dW * (1.065 / 60), 0);
+   dustP4Shape.lineTo(dW / 2 - dW * (3.5 / 60), dW * (3.5 / 60));
+@@ -197,149 +197,63 @@
+   };
+ }
+ 
+-// ─────────────────────────────────────────────────────────────────────────────
+-// MAIN COMPONENT
+-// ─────────────────────────────────────────────────────────────────────────────
+-export default function Box3DViewer({
+-  L,
+-  W,
+-  H,
+-  T,
+-  progress = 0.85,
+-  materialPreset = "corrugated-kraft",
+-  lightingPreset = "studio",
+-}) {
++export default function Box3DViewer({ L, W, H, T, progress = 0.85, materialPreset = "corrugated-kraft", lightingPreset = "studio", decals = [] }) {
+   const nT = Math.max(0.015, Number(T) || 0.0197);
+-
+-  // ── 5-stage kinematics (each stage spans 0.2 of total progress) ──────────
+-  // Stage 1 (0.00–0.20): Sleeve tube forms — all 4 panels fold into rectangle
+   const tubeAngle = stageProgress(progress, 0.00, 0.20) * (Math.PI / 2);
+-
+-  // Stage 2 (0.20–0.40): Bottom dust flaps fold 90° inward
+   const bdAngle = stageProgress(progress, 0.20, 0.40) * (Math.PI / 2);
+-
+-  // Stage 3 (0.40–0.60): Bottom tuck cover folds + lip inserts
+-  const btAngle    = stageProgress(progress, 0.40, 0.60) * (Math.PI / 2);
++  const btAngle = stageProgress(progress, 0.40, 0.60) * (Math.PI / 2);
+   const btLipAngle = stageProgress(progress, 0.40, 0.60) * (105 * Math.PI / 180);
+-
+-  // Stage 4 (0.60–0.80): Top dust flaps fold 90° inward
+   const tdAngle = stageProgress(progress, 0.60, 0.80) * (Math.PI / 2);
+-
+-  // Stage 5 (0.80–1.00): Top tuck cover folds + lip inserts to close box
+-  const ttAngle    = stageProgress(progress, 0.80, 1.00) * (Math.PI / 2);
++  const ttAngle = stageProgress(progress, 0.80, 1.00) * (Math.PI / 2);
+   const ttLipAngle = stageProgress(progress, 0.80, 1.00) * (105 * Math.PI / 180);
+ 
+-  // ── Build geometry (memoized — only rebuilds when dimensions change) ──────
+-  const geoms = useMemo(
+-    () => buildBoxGeometries(L, W, H, nT),
+-    [L, W, H, nT]
+-  );
++  const geoms = useMemo(() => buildBoxGeometries(L, W, H, nT), [L, W, H, nT]);
+   const { p13Geom, p24Geom, glueGeom, coverGeom, lipGeom, dustP2Geom, dustP4Geom, coverDepth } = geoms;
+-
+-  // ── Procedural texture ────────────────────────────────────────────────────
+   const texture = useMemo(() => createProceduralTexture(materialPreset), [materialPreset]);
+ 
+-  // ── Materials (3 layers: outside surface, inside face, cut edges) ─────────
+   const [outsideMat, insideMat, edgeMat, flapMat] = useMemo(() => {
+-    const roughness = materialPreset === "gold-foil" ? 0.25 : 0.95; // Rougher for more matte look
++    const roughness = materialPreset === "gold-foil" ? 0.25 : 0.95;
+     const metalness = materialPreset === "gold-foil" ? 0.75 : 0.00;
+-    // Increased bump scale so the chunky paper fibers cast micro-shadows from a distance
+     const bumpScale = materialPreset === "corrugated-kraft" ? 0.009 : 0.005; 
+-    const texProps  = texture
+-      ? { map: texture, bumpMap: texture, bumpScale }
+-      : {};
+-
+-    const outside = new THREE.MeshStandardMaterial({
+-      roughness, metalness, side: THREE.FrontSide, ...texProps,
+-    });
+-
+-    // Inside of the box — slightly different tone
+-    let insideHex = "#eeeae3"; // white paperboard inside
+-    if (materialPreset === "natural-kraft")    insideHex = "#cdae7d";
++    const texProps = texture ? { map: texture, bumpMap: texture, bumpScale } : {};
++    const outside = new THREE.MeshStandardMaterial({ roughness, metalness, side: THREE.FrontSide, ...texProps });
++    let insideHex = "#eeeae3";
++    if (materialPreset === "natural-kraft") insideHex = "#cdae7d";
+     if (materialPreset === "corrugated-kraft") insideHex = "#c09765";
+-    if (materialPreset === "matte-black")      insideHex = "#252525";
+-    if (materialPreset === "gold-foil")        insideHex = "#f0d890";
+-    const inside = new THREE.MeshStandardMaterial({
+-      color: insideHex, roughness: 0.96, metalness: 0.0, side: THREE.BackSide,
+-    });
+-
+-    // Cut edges of the board
+-    let edgeHex = "#d8d4cc"; // white board cross-section
+-    if (materialPreset === "natural-kraft")    edgeHex = "#a28258";
++    if (materialPreset === "matte-black") insideHex = "#252525";
++    if (materialPreset === "gold-foil") insideHex = "#f0d890";
++    const inside = new THREE.MeshStandardMaterial({ color: insideHex, roughness: 0.96, metalness: 0.0, side: THREE.BackSide });
++    let edgeHex = "#d8d4cc";
++    if (materialPreset === "natural-kraft") edgeHex = "#a28258";
+     if (materialPreset === "corrugated-kraft") edgeHex = "#957248";
+-    if (materialPreset === "matte-black")      edgeHex = "#303030";
+-    if (materialPreset === "gold-foil")        edgeHex = "#c08a10";
+-    const edge = new THREE.MeshStandardMaterial({
+-      color: edgeHex, roughness: 0.95, metalness: 0.0,
+-    });
+-
+-    // Flap material — DoubleSide so both faces show when flap is flat
+-    const flap = new THREE.MeshStandardMaterial({
+-      roughness, metalness, side: THREE.DoubleSide, ...texProps,
+-    });
+-
++    if (materialPreset === "matte-black") edgeHex = "#303030";
++    if (materialPreset === "gold-foil") edgeHex = "#c08a10";
++    const edge = new THREE.MeshStandardMaterial({ color: edgeHex, roughness: 0.95, metalness: 0.0 });
++    const flap = new THREE.MeshStandardMaterial({ roughness, metalness, side: THREE.DoubleSide, ...texProps });
+     return [outside, inside, edge, flap];
+   }, [materialPreset, texture]);
+ 
+-  // Panels use [outside, inside, edge] multi-material
+-  const panelMats = [outsideMat, insideMat, edgeMat];
+-
+-  // ── Lighting presets ──────────────────────────────────────────────────────
+   const lighting = useMemo(() => {
+-    switch (lightingPreset) {
+-      case "warm":
+-        return <>
+-          <ambientLight intensity={0.80} color="#fff6e8" />
+-          <directionalLight position={[10, 14, 10]} intensity={1.1}  color="#fff0d8" castShadow />
+-          <directionalLight position={[-5,  6, -4]} intensity={0.25} color="#c8d8ff" />
+-        </>;
+-      case "dramatic":
+-        return <>
+-          <ambientLight intensity={0.15} />
+-          <spotLight position={[6, 14, 8]} intensity={2.0} angle={0.28} penumbra={0.9} castShadow />
+-          <pointLight position={[-4, -6, 4]} intensity={0.3} color="#4488ff" />
+-        </>;
+-      default: // studio
+-        return <>
+-          {/* Extremely high ambient light ensures the color stays bright and consistent on ALL sides */}
+-          <ambientLight intensity={0.95} color="#ffffff" />
+-          {/* Very subtle directional light just to give a tiny bit of 3D depth, without harsh shadows */}
+-          <directionalLight position={[ 8, 12, 12 ]} intensity={0.15} castShadow />
+-          <directionalLight position={[ -8, 6, -5 ]} intensity={0.05} color="#f0f5ff" />
+-        </>;
+-    }
+-  }, [lightingPreset]);
+-
+-  // ── Camera ────────────────────────────────────────────────────────────────
+-  const camPos = [L * 1.15, H * 0.55, W * 3.2];
++    return (
++      <>
++        <ambientLight intensity={0.95} color="#ffffff" />
++        <directionalLight position={[8, 12, 12]} intensity={0.15} castShadow />
++        <directionalLight position={[-8, 6, -5]} intensity={0.05} color="#f0f5ff" />
++      </>
++    );
++  }, []);
+ 
+   return (
+     <div style={{ width: "100%", height: "100%", position: "relative" }}>
+-      <Canvas
+-        flat // CRITICAL: Disables cinematic tone mapping so exact hex colors render accurately!
+-        camera={{ position: camPos, fov: 38 }}
+-        gl={{ preserveDrawingBuffer: true, antialias: true }}
+-        shadows
+-      >
++      <Canvas flat camera={{ position: [L * 1.15, H * 0.55, W * 3.2], fov: 38 }} gl={{ preserveDrawingBuffer: true, antialias: true }} shadows>
+         {lighting}
+-
+-        {/* ═══════════════════════════════════════════════════════════════
+-            BOX GROUP — all geometry is relative to the box center
+-            Coordinate system:
+-              • Panel 1 (FRONT) centered at origin, face toward +Z
+-              • +X = right,  +Y = up,  +Z = toward viewer
+-              • Box interior is in the −Z half-space
+-        ═══════════════════════════════════════════════════════════════ */}
+         <group>
+-
+-          {/* ── PANEL 1 (FRONT anchor panel, L × H) ── */}
+           <group position={[0, 0, -nT]}>
+-            <mesh geometry={p13Geom} material={panelMats} />
+-
+-            {/* TOP TUCK COVER — folds inward (−Z) when ttAngle → π/2 */}
++            <mesh geometry={p13Geom} material={outsideMat} />
++            <mesh geometry={p13Geom} material={insideMat} />
++            <group position={[0, 0, 0]}><MappedDecals panel="p1" decals={decals} L={L} W={W} H={H} /></group>
+             <group position={[0, H / 2, 0]} rotation={[-ttAngle, 0, 0]}>
+               <mesh geometry={coverGeom} material={flapMat} />
+-              {/* Tuck insert lip — folds slightly past 90° to lock inside */}
+               <group position={[0, coverDepth, 0]} rotation={[-ttLipAngle, 0, 0]}>
+                 <mesh geometry={lipGeom} position={[0, 0, -nT]} material={flapMat} />
+               </group>
+@@ -346,37 +346,21 @@
+-
+-          </group>
+-
+-          {/* ── GLUE FLAP (hinges off Panel 1's left edge, tucks behind P4) ── */}
+-          {/* Folds 90 deg inward to sit flush against Panel 4. Shifted by nT so it's inside the box. */}
++          </group>
+           <group position={[-L / 2 + nT, 0, -nT]} rotation={[0, -tubeAngle * 0.98, 0]}>
+             <mesh geometry={glueGeom} material={flapMat} />
+           </group>
+-
+-          {/* ── PANEL 2 (RIGHT SIDE, W × H) ──
+-              Hinge: Panel 1's right edge (x = +L/2)
+-              Folds 90° around Y → Panel 2 becomes the right wall */}
+           <group position={[L / 2, 0, 0]} rotation={[0, tubeAngle, 0]}>
+-            <mesh geometry={p24Geom} material={panelMats} />
+-
+-            {/* P2 TOP DUST FLAP */}
++            <mesh geometry={p24Geom} material={outsideMat} />
++            <mesh geometry={p24Geom} material={insideMat} />
++            <group position={[0, 0, 0]}><MappedDecals panel="p2" decals={decals} L={L} W={W} H={H} /></group>
+             <group position={[W / 2, H / 2 - nT, 0]} rotation={[-tdAngle, 0, 0]}>
+               <mesh geometry={dustP2Geom} material={flapMat} />
+             </group>
+-
+-            {/* P2 BOTTOM DUST FLAP (flipped around X so it faces downward) */}
+-            {/* Uses dustP4Geom because bottom tuck is on P3, so notch must be on P1 side */}
+             <group position={[W / 2, -H / 2 + nT, 0]} rotation={[bdAngle, 0, 0]}>
+               <mesh geometry={dustP4Geom} rotation={[Math.PI, 0, 0]} material={flapMat} />
+             </group>
+-
+-            {/* ── PANEL 3 (BACK, L × H) ──
+-                Hinge: Panel 2's far edge (x = W in P2-local space)
+-                Folds another 90° → Panel 3 is the back wall */}
+             <group position={[W, 0, 0]} rotation={[0, tubeAngle, 0]}>
+-              {/* Center p13 shape by shifting L/2 so hinge is at local x=0 */}
+-              <mesh geometry={p13Geom} position={[L / 2, 0, -nT]} material={panelMats} />
+-
+-              {/* BOTTOM TUCK COVER — added here to create Reverse Tuck End box */}
++              <mesh geometry={p13Geom} position={[L / 2, 0, -nT]} material={outsideMat} />
++              <mesh geometry={p13Geom} position={[L / 2, 0, 0]} material={insideMat} />
++              <group position={[L / 2, 0, -nT]}><MappedDecals panel="p3" decals={decals} L={L} W={W} H={H} /></group>
+               <group position={[L / 2, -H / 2, -nT]} rotation={[btAngle, 0, 0]}>
+                 <mesh geometry={coverGeom} rotation={[0, 0, Math.PI]} material={flapMat} />
+                 <group position={[0, -coverDepth, 0]} rotation={[btLipAngle, 0, 0]}>
+@@ -383,19 +383,12 @@
+                 </group>
+               </group>
+-
+-              {/* ── PANEL 4 (LEFT SIDE, W × H) ──
+-                  Hinge: Panel 3's far edge (x = L in P3-local space)
+-                  Folds another 90° → Panel 4 is the left wall, closing the tube */}
+               <group position={[L, 0, 0]} rotation={[0, tubeAngle, 0]}>
+-                <mesh geometry={p24Geom} material={panelMats} />
+-
+-                {/* P4 TOP DUST FLAP (mirror of P2) */}
++                <mesh geometry={p24Geom} material={outsideMat} />
++                <mesh geometry={p24Geom} material={insideMat} />
++                <group position={[0, 0, 0]}><MappedDecals panel="p4" decals={decals} L={L} W={W} H={H} /></group>
+                 <group position={[W / 2, H / 2 - nT, 0]} rotation={[-tdAngle, 0, 0]}>
+                   <mesh geometry={dustP4Geom} material={flapMat} />
+                 </group>
+-
+-                {/* P4 BOTTOM DUST FLAP */}
+-                {/* Uses dustP2Geom because notch must be on P1 side */}
+                 <group position={[W / 2, -H / 2 + nT, 0]} rotation={[bdAngle, 0, 0]}>
+                   <mesh geometry={dustP2Geom} rotation={[Math.PI, 0, 0]} material={flapMat} />
+                 </group>
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+
+We did our best to apply changes despite some inaccuracies. Double check if the edit applied is what you intended.
+
+CONTENT:
+Created At: 2026-07-15T06:28:13Z
+Tool is running as a background task with task id: e0b41d9d-6977-470a-80f2-079d2b35aa1a/task-512
+Task Description: grep -n "buildBoxGeometries" C:/Users/yashg/.gemini/antigravity-ide/brain/e0b41d9d-6977-470a-80f2-079d2b35aa1a/.system_generated/logs/transcript_full.jsonl
+Task logs are available at: file:///C:/Users/yashg/.gemini/antigravity-ide/brain/e0b41d9d-6977-470a-80f2-079d2b35aa1a/.system_generated/tasks/task-512.log
+
+CONTENT:
+Created At: 2026-07-15T06:29:00Z
+Completed At: 2026-07-15T06:29:01Z
+File Path: `file:///C:/Users/yashg/.gemini/antigravity-ide/brain/e0b41d9d-6977-470a-80f2-079d2b35aa1a/.system_generated/tasks/task-512.log`
+Total Lines: 9
+Total Bytes: 471
+Showing lines 1 to 9
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: grep : The term 'grep' is not recognized as the name of a cmdlet, function, script file, or operable program. Check 
+2: the spelling of the name, or if a path was included, verify that the path is correct and try again.
+3: At line:1 char:1
+4: + grep -n "buildBoxGeometries" C:/Users/yashg/.gemini/antigravity-ide/b ...
+5: + ~~~~
+6:     + CategoryInfo          : ObjectNotFound: (grep:String) [], CommandNotFoundException
+7:     + FullyQualifiedErrorId : CommandNotFoundException
+8:  
+9: 
+The above content shows the entire, complete file contents of the requested file.
+
+
+CONTENT:
+The following is a <SYSTEM_MESSAGE> not actually sent by the user. It is provided by the system as important information to pay attention to.
+
+<SYSTEM_MESSAGE>
+[Message] timestamp=2026-07-15T06:28:56Z sender=e0b41d9d-6977-470a-80f2-079d2b35aa1a/task-512 priority=MESSAGE_PRIORITY_HIGH content=Task id "e0b41d9d-6977-470a-80f2-079d2b35aa1a/task-512" finished with result:
+
+				The command failed with exit code: 1
+				Output:
+				grep : The term 'grep' is not recognized as the name of a cmdlet, function, script file, or operable program. Check 
+the spelling of the name, or if a path was included, verify that the path is correct and try again.
+At line:1 char:1
++ grep -n "buildBoxGeometries" C:/Users/yashg/.gemini/antigravity-ide/b ...
++ ~~~~
+    + CategoryInfo          : ObjectNotFound: (grep:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+
+
+Log: file:///C:/Users/yashg/.gemini/antigravity-ide/brain/e0b41d9d-6977-470a-80f2-079d2b35aa1a/.system_generated/tasks/task-512.log
+</SYSTEM_MESSAGE>
+
+WRITE:
+const fs = require('fs');
+const path = require('path');
+
+const transcriptPath = 'C:/Users/yashg/.gemini/antigravity-ide/brain/e0b41d9d-6977-470a-80f2-079d2b35aa1a/.system_generated/logs/transcript_full.jsonl';
+const fileContent = fs.readFileSync(transcriptPath, 'utf8');
+
+const lines = fileContent.split('\n');
+let lastGoodContent = null;
+
+for (const line of lines) {
+    if (!line) continue;
+    try {
+        const obj = JSON.parse(line);
+        if (obj.tool_calls) {
+            for (const call of obj.tool_calls) {
+                if (call.name === 'write_to_file' || call.name === 'replace_file_content' || call.name === 'multi_replace_file_content') {
+                    const targetFile = call.args.TargetFile;
+                    if (targetFile && targetFile.includes('Box3DViewer.jsx')) {
+                        if (call.name === 'write_to_file') {
+                            lastGoodContent = call.args.CodeContent;
+                        }
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        // ignore
+    }
+}
+
+if (lastGoodContent) {
+    fs.writeFileSync('C:/Users/yashg/boxcraft-pro/src/components/Box3DViewer.jsx', lastGoodContent);
+    console.log("RECOVERED SUCCESSFULLY");
+} else {
+    console.log("Not found in transcript.");
+}
+
+WRITE:
+const fs = require('fs');
+
+const transcriptPath = 'C:/Users/yashg/.gemini/antigravity-ide/brain/e0b41d9d-6977-470a-80f2-079d2b35aa1a/.system_generated/logs/transcript_full.jsonl';
+const fileContent = fs.readFileSync(transcriptPath, 'utf8');
+
+const lines = fileContent.split('\n');
+
+for (const line of lines) {
+    if (!line) continue;
+    try {
+        const obj = JSON.parse(line);
+        if (obj.type === "PLANNER_RESPONSE" && obj.tool_calls) {
+            for (const call of obj.tool_calls) {
+                if (call.name === 'write_to_file' || call.name === 'replace_file_content' || call.name === 'multi_replace_file_content') {
+                    const targetFile = call.args.TargetFile;
+                    if (targetFile && targetFile.includes('Box3DViewer.jsx')) {
+                         console.log("Found edit call:", call.name, obj.step_index);
+                         if (call.name === 'write_to_file') {
+                             fs.writeFileSync('C:/Users/yashg/boxcraft-pro/recover2.txt', call.args.CodeContent);
+                             console.log("Wrote from write_to_file");
+                         }
+                    }
+                }
+            }
+        }
+        
+        // Also check if view_file response contains it
+        if (obj.output && obj.output.includes('buildBoxGeometries')) {
+             console.log("Found in view_file output at step", obj.step_index);
+             fs.writeFileSync('C:/Users/yashg/boxcraft-pro/recover_view.txt', obj.output);
+        }
+    } catch (e) {
+        // ignore
+    }
+}
+
+
+WRITE:
+const fs = require('fs');
+
+const transcriptPath = 'C:/Users/yashg/.gemini/antigravity-ide/brain/e0b41d9d-6977-470a-80f2-079d2b35aa1a/.system_generated/logs/transcript_full.jsonl';
+const fileContent = fs.readFileSync(transcriptPath, 'utf8');
+
+const lines = fileContent.split('\n');
+let out = '';
+
+for (const line of lines) {
+    if (line.includes('buildBoxGeometries')) {
+        out += line + '\n\n';
+    }
+}
+
+fs.writeFileSync('C:/Users/yashg/boxcraft-pro/recover_view.txt', out);
+console.log("Lines dumped: ", out.length > 0 ? "YES" : "NO");
+
+
