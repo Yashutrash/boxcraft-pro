@@ -3,6 +3,7 @@ import DielineSVG from "../src/components/DielineSVG";
 import Box3DViewer from "../src/components/Box3DViewer";
 import { exportSVG, exportPDF, exportDXF } from "../src/lib/exportUtils";
 import { generateRTEDieline } from "../src/lib/rteDielineGenerator";
+import { generateTEDielineDXF } from "../src/lib/teDielineGenerator";
 import { useBoxStore } from "../src/lib/useBoxStore";
 
 const themes = {
@@ -117,12 +118,20 @@ export default function Home() {
 
   // Export handlers
   const handleExportDXF = () => {
-    const dieline = generateRTEDieline({
-      L: manuL, W: manuW, H: manuH, T: store.T,
-      glueFlapWidth: store.glueFlapWidth, bleed: store.bleed,
-      method: store.generatorMethod
-    });
-    exportDXF(dieline, `boxcraft_${store.generatorMethod}_dieline.dxf`);
+    let dieline;
+    if (store.boxModel === 'te') {
+      dieline = generateTEDielineDXF({
+        L: manuL, W: manuW, H: manuH, T: store.T,
+        glueFlapWidth: store.glueFlapWidth, bleed: store.bleed
+      });
+    } else {
+      dieline = generateRTEDieline({
+        L: manuL, W: manuW, H: manuH, T: store.T,
+        glueFlapWidth: store.glueFlapWidth, bleed: store.bleed,
+        method: store.generatorMethod
+      });
+    }
+    exportDXF(dieline, `boxcraft_${store.boxModel}_dieline.dxf`);
   };
 
   const handleExportMockup = () => {

@@ -9,6 +9,10 @@ export const useBoxStore = create((set) => ({
   glueFlapWidth: 0.625,
   bleed: 2 / 25.4,
 
+  // Box Model
+  boxModel: "rte",
+  setBoxModel: (m) => set({ boxModel: m }),
+
   // Material Tracker (Paperboard vs Corrugated)
   materialType: "paperboard",
   setMaterialType: (type, defaultT) => set({ 
@@ -77,8 +81,16 @@ export const useBoxStore = create((set) => ({
   setInsideColor: (color) => set({ insideColor: color }),
 
   // Decals (Text, Images, Logos)
-  decals: [],
-  setDecals: (decalsOrUpdater) => set((state) => ({ 
-    decals: typeof decalsOrUpdater === "function" ? decalsOrUpdater(state.decals) : decalsOrUpdater 
-  })),
+  decalsByModel: { rte: [], te: [] },
+  setDecals: (decalsOrUpdater) => set((state) => {
+    const currentModel = state.boxModel;
+    const currentDecals = state.decalsByModel[currentModel] || [];
+    const newDecals = typeof decalsOrUpdater === "function" ? decalsOrUpdater(currentDecals) : decalsOrUpdater;
+    return {
+      decalsByModel: {
+        ...state.decalsByModel,
+        [currentModel]: newDecals
+      }
+    };
+  }),
 }));

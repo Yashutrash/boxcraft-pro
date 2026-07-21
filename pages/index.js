@@ -111,7 +111,7 @@ export default function LandingPage() {
         }}>
           
           {/* 3D Workspace Card */}
-          <Link href="/workshop" style={{ textDecoration: 'none' }}>
+          <Link href="/mockups" style={{ textDecoration: 'none' }}>
             <div style={{
               width: '340px', height: '360px',
               backgroundColor: '#fffcf7', // Slightly lighter cream
@@ -139,10 +139,10 @@ export default function LandingPage() {
                 marginBottom: '12px', textAlign: 'left',
                 fontFamily: "Georgia, 'Times New Roman', serif"
               }}>
-                The Workshop
+                Mockup Generator
               </h2>
               <p style={{ fontSize: '15px', color: '#7a6a5f', textAlign: 'left', marginBottom: 'auto', lineHeight: '1.5' }}>
-                Touch and shape materials interactively. A cozy 3D space to fold your visions.
+                Create beautiful 3D mockups of your packaging to visualize the final product.
               </p>
               
               {/* Hand-drawn style illustration for 3D */}
@@ -159,7 +159,7 @@ export default function LandingPage() {
           </Link>
 
           {/* Dieline Generator Card */}
-          <Link href="/dieline" style={{ textDecoration: 'none' }}>
+          <Link href="/dielines" style={{ textDecoration: 'none' }}>
             <div style={{
               width: '340px', height: '360px',
               backgroundColor: '#fffcf7',
@@ -187,7 +187,7 @@ export default function LandingPage() {
                 marginBottom: '12px', textAlign: 'left',
                 fontFamily: "Georgia, 'Times New Roman', serif"
               }}>
-                The Blueprint
+                Dieline Generator
               </h2>
               <p style={{ fontSize: '15px', color: '#7a6a5f', textAlign: 'left', marginBottom: 'auto', lineHeight: '1.5' }}>
                 Generate precise, print-ready structural patterns that feel just right.

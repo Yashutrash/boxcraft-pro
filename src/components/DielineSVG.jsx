@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { generateRTEDieline } from "../lib/rteDielineGenerator";
+import { generateTEDielineDXF } from "../lib/teDielineGenerator";
 import { useBoxStore } from "../lib/useBoxStore";
 import { generateCardboardCanvas } from "../lib/textureGenerator";
 import { generatePanelHitboxes } from "../lib/panelHitboxes";
@@ -47,7 +48,7 @@ const DielineSVG = React.forwardRef(function DielineSVG(props, forwardedRef) {
     L, W, H, T, sizeMode, glueFlapWidth, bleed, 
     trimColor, creaseColor, bleedColor, dimColor, 
     showOverallDims, showBasicDims, showBleedLine, showAnnotations, 
-    theme, generatorMethod, packageColor
+    theme, generatorMethod, packageColor, boxModel
   } = useBoxStore();
 
   // --- THE PACDORA 2T MATH REVEALED IN THE VIDEO ---
@@ -68,8 +69,11 @@ const DielineSVG = React.forwardRef(function DielineSVG(props, forwardedRef) {
 
   // Draw the dieline using the dynamically calculated MANUFACTURE dimensions
   const dieline = useMemo(() => {
+    if (boxModel === 'te') {
+      return generateTEDielineDXF({ L: manuL, W: manuW, H: manuH, T, glueFlapWidth, bleed });
+    }
     return generateRTEDieline({ L: manuL, W: manuW, H: manuH, T, glueFlapWidth, bleed, method: generatorMethod });
-  }, [manuL, manuW, manuH, T, glueFlapWidth, bleed, generatorMethod]);
+  }, [manuL, manuW, manuH, T, glueFlapWidth, bleed, generatorMethod, boxModel]);
 
   const { width, height, cutPaths, bleedPaths, foldLines, dimensions } = dieline;
   const { x1, x2, x3, x4, x5, yTop, yBot } = dimensions;

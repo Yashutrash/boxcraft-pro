@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { useTexture } from "@react-three/drei";
 import { useBoxStore } from "../lib/useBoxStore";
 import { generateRTEDieline } from "../lib/rteDielineGenerator";
+import { generateTEDielineDXF } from "../lib/teDielineGenerator";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DECAL MAPPING COMPONENT
@@ -70,6 +71,10 @@ function DecalItem({ decal, L, W, H, manuL, manuW, manuH, dims, panel, T }) {
     scaleX = L / manuL; cx = (decal.x - x1) * scaleX - L / 2; cy = (yTop - decal.y) * scaleY;
   } else if (panel === "p1_top_lip") {
     scaleX = L / manuL; cx = (decal.x - x1) * scaleX - L / 2; cy = (yTop - coverDepth - decal.y) * scaleY;
+  } else if (panel === "p3_top_cover") {
+    scaleX = L / manuL; cx = -((decal.x - x3) * scaleX - L / 2); cy = (yTop - decal.y) * scaleY; rotZ = Math.PI;
+  } else if (panel === "p3_top_lip") {
+    scaleX = L / manuL; cx = -((decal.x - x3) * scaleX - L / 2); cy = (yTop - coverDepth - decal.y) * scaleY; rotZ = Math.PI;
   } else if (panel === "p3_bot_cover") {
     scaleX = L / manuL; cx = -((decal.x - x3) * scaleX - L / 2); cy = (decal.y - yBot) * scaleY; rotZ = Math.PI;
   } else if (panel === "p3_bot_lip") {
@@ -150,6 +155,9 @@ function MappedDecals({ panel, decals, L, W, H, manuL, manuW, manuH, dims, T }) 
 
     if (panel === "p1_top_cover") return overlap(x1, x2, yTop - coverDepth, yTop);
     if (panel === "p1_top_lip") return overlap(x1, x2, yTop - coverDepth - lipDepth, yTop - coverDepth);
+    
+    if (panel === "p3_top_cover") return overlap(x3, x4, yTop - coverDepth, yTop);
+    if (panel === "p3_top_lip") return overlap(x3, x4, yTop - coverDepth - lipDepth, yTop - coverDepth);
 
     if (panel === "p3_bot_cover") return overlap(x3, x4, yBot, yBot + coverDepth);
     if (panel === "p3_bot_lip") return overlap(x3, x4, yBot + coverDepth, yBot + coverDepth + lipDepth);
@@ -449,8 +457,10 @@ export default function Box3DViewer({
   materialPreset = "corrugated-kraft",
   lightingPreset = "studio",
   overrideLayout = null,
+  boxModelOverride = null,
 }) {
   const store = useBoxStore();
+  const currentBoxModel = boxModelOverride || store.boxModel;
   const nT = Math.max(0.015, Number(T) || 0.0197);
 
   // Match 2D SVG dims EXACTLY
@@ -462,13 +472,20 @@ export default function Box3DViewer({
   }
 
   const dieline = useMemo(() => {
+    if (currentBoxModel === 'te') {
+      return generateTEDielineDXF({
+        L: manuL, W: manuW, H: manuH, T,
+        glueFlapWidth: store.glueFlapWidth,
+        bleed: store.bleed,
+      });
+    }
     return generateRTEDieline({
       L: manuL, W: manuW, H: manuH, T,
       glueFlapWidth: store.glueFlapWidth,
       bleed: store.bleed,
       method: store.generatorMethod
     });
-  }, [manuL, manuW, manuH, T, store.glueFlapWidth, store.bleed, store.generatorMethod]);
+  }, [manuL, manuW, manuH, T, store.glueFlapWidth, store.bleed, store.generatorMethod, currentBoxModel]);
 
   const dims = dieline.dimensions;
 
@@ -574,11 +591,14 @@ export default function Box3DViewer({
         </>;
       default: // studio
         return <>
-          {/* Extremely high ambient light ensures the color stays bright and consistent on ALL sides */}
-          <ambientLight intensity={0.95} color="#ffffff" />
-          {/* Very subtle directional light just to give a tiny bit of 3D depth, without harsh shadows */}
-          <directionalLight position={[8, 12, 12]} intensity={0.15} castShadow />
-          <directionalLight position={[-8, 6, -5]} intensity={0.05} color="#f0f5ff" />
+          {/* Lower ambient light to prevent blending into the white background */}
+          <ambientLight intensity={0.60} color="#ffffff" />
+          {/* Main key light from front-top-right */}
+          <directionalLight position={[8, 12, 12]} intensity={0.40} castShadow />
+          {/* Soft fill light from front-left */}
+          <directionalLight position={[-8, 6, 8]} intensity={0.15} color="#f0f5ff" />
+          {/* Strong rim light from the back to define edges against the background */}
+          <directionalLight position={[0, 10, -15]} intensity={0.35} color="#ffffff" />
         </>;
     }
   }, [lightingPreset]);
@@ -619,7 +639,6 @@ export default function Box3DViewer({
         { key: 'box3', pos: [L/2, H*1.5 + gap*3, -W], rot: [0, -Math.PI/8, 0] },
       ];
     }
-        {/* single */}
     return [{ key: 'box1', pos: [0, 0, 0], rot: [0, 0, 0] }];
   }, [store.sceneLayout, overrideLayout, L, W, H]);
 
@@ -631,7 +650,8 @@ export default function Box3DViewer({
           <MappedDecals panel="p1" decals={decals} L={L} W={W} H={H} manuL={manuL} manuW={manuW} manuH={manuH} dims={dims} T={T} />
         </mesh>
 
-        {/* TOP TUCK COVER — folds inward (−Z) when ttAngle → π/2 */}
+        {/* PANEL 1 TOP TUCK (ONLY FOR RTE) */}
+        {currentBoxModel !== 'te' && (
         <group position={[0, H / 2, 0]} rotation={[-ttAngle, 0, 0]}>
           <mesh geometry={coverGeom} material={flapMat}>
             <MappedDecals panel="p1_top_cover" decals={decals} L={L} W={W} H={H} manuL={manuL} manuW={manuW} manuH={manuH} dims={dims} T={T} />
@@ -643,6 +663,7 @@ export default function Box3DViewer({
             </mesh>
           </group>
         </group>
+        )}
 
       </group>
 
@@ -690,6 +711,20 @@ export default function Box3DViewer({
               </mesh>
             </group>
           </group>
+          
+          {/* TE ONLY: TOP TUCK COVER */}
+          {store.boxModel === 'te' && (
+          <group position={[L / 2, H / 2, -nT]} rotation={[-ttAngle, 0, 0]}>
+            <mesh geometry={coverGeom} material={flapMat}>
+              <MappedDecals panel="p3_top_cover" decals={decals} L={L} W={W} H={H} manuL={manuL} manuW={manuW} manuH={manuH} dims={dims} T={T} />
+            </mesh>
+            <group position={[0, coverDepth, 0]} rotation={[-ttLipAngle, 0, 0]}>
+              <mesh geometry={lipGeom} position={[0, 0, -nT]} material={flapMat}>
+                <MappedDecals panel="p3_top_lip" decals={decals} L={L} W={W} H={H} manuL={manuL} manuW={manuW} manuH={manuH} dims={dims} T={T} />
+              </mesh>
+            </group>
+          </group>
+          )}
 
           {/* ── PANEL 4 (LEFT SIDE, W × H) ── */}
           <group position={[L, 0, 0]} rotation={[0, tubeAngle, 0]}>

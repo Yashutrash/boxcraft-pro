@@ -49,7 +49,8 @@ export default function Editor() {
   const [activeTab, setActiveTab] = useState("Uploads");
   const [foldProgress, setFoldProgress] = useState(1);
   const [galleryImages, setGalleryImages] = useState([]);
-  const { decals, setDecals } = store;
+  const decals = store.decalsByModel[store.boxModel] || [];
+  const setDecals = store.setDecals;
   const [activeSurface, setActiveSurface] = useState("Outside");
   const t = themes[store.theme || 'light'];
 
